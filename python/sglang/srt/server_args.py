@@ -143,6 +143,7 @@ class ServerArgs:
     triton_attention_reduce_in_fp32: bool = False
     num_continuous_decode_steps: int = 1
     delete_ckpt_after_loading: bool = False
+    allow_auto_truncate: bool = False
 
     def __post_init__(self):
         # Set missing default values
@@ -787,6 +788,11 @@ class ServerArgs:
             "--disable-disk-cache",
             action=DeprecatedAction,
             help="'--disable-disk-cache' is deprecated. Please use '--disable-outlines-disk-cache' instead.",
+        )
+        parser.add_argument(
+            "--allow-auto-truncate",
+            action="store_true",
+            help="Allow automatically truncating requests that exceed the maximum input length instead of returning an error.",
         )
 
     @classmethod

@@ -21,6 +21,7 @@ import time
 import warnings
 from collections import deque
 from concurrent import futures
+from http import HTTPStatus
 from types import SimpleNamespace
 from typing import List, Optional
 
@@ -68,6 +69,7 @@ from sglang.srt.managers.schedule_policy import (
 from sglang.srt.managers.session_controller import Session
 from sglang.srt.managers.tp_worker import TpModelWorker
 from sglang.srt.managers.tp_worker_overlap_thread import TpModelWorkerClient
+from sglang.srt.managers.utils import validate_input_length
 from sglang.srt.mem_cache.chunk_cache import ChunkCache
 from sglang.srt.mem_cache.radix_cache import RadixCache
 from sglang.srt.metrics.collector import SchedulerMetricsCollector, SchedulerStats
@@ -543,15 +545,16 @@ class Scheduler:
             req.extend_image_inputs(image_inputs)
 
             if len(req.origin_input_ids) >= self.max_req_input_len:
-                logger.error(
+                error_msg = (
                     "Multimodal prompt is too long after expanding multimodal tokens. "
-                    f"After expanding {len(req.origin_input_ids_unpadded)=} => {len(req.origin_input_ids)} >= {self.max_req_input_len}. "
+                    f"After expanding {len(req.origin_input_ids_unpadded)=} => {len(req.origin_input_ids)} >= {self.max_req_input_len}."
                 )
+                logger.error(error_msg)
                 req.origin_input_ids = [0]
                 req.image_inputs = None
                 req.sampling_params.max_new_tokens = 0
                 req.finished_reason = FINISH_ABORT(
-                    "Multimodal prompt is too long. Check server logs for details."
+                    error_msg, HTTPStatus.BAD_REQUEST, "BadRequestError"
                 )
                 self.waiting_queue.append(req)
                 return
@@ -566,13 +569,16 @@ class Scheduler:
             # By default, only return the logprobs for output tokens
             req.logprob_start_len = len(recv_req.input_ids) - 1
 
-        # Truncate prompts that are too long
-        if len(req.origin_input_ids) > self.max_req_input_len:
-            logger.warning(
-                "Request length is longer than the KV cache pool size or "
-                "the max context length. Truncated!!!"
-            )
-            req.origin_input_ids = req.origin_input_ids[: self.max_req_input_len]
+        # Validate prompts length
+        error_msg = validate_input_length(
+            req,
+            self.max_req_input_len,
+            self.server_args.allow_auto_truncate,
+        )
+
+        if error_msg:
+            self.waiting_queue.append(req)
+            return
 
         req.sampling_params.max_new_tokens = min(
             (
@@ -617,13 +623,12 @@ class Scheduler:
         )
         req.tokenizer = self.tokenizer
 
-        # Truncate prompts that are too long
-        if len(req.origin_input_ids) >= self.max_req_input_len:
-            logger.warning(
-                "Request length is longer than the KV cache pool size or "
-                "the max context length. Truncated!!!"
-            )
-            req.origin_input_ids = req.origin_input_ids[: self.max_req_input_len]
+        # Validate prompts length
+        validate_input_length(
+            req,
+            self.max_req_input_len,
+            self.server_args.allow_auto_truncate,
+        )
 
         self.waiting_queue.append(req)
 
@@ -1246,6 +1251,11 @@ class Scheduler:
                     output_embeddings.append(req.embedding)
                     meta_info = {
                         "prompt_tokens": len(req.origin_input_ids),
+                        "finish_reason": (
+                            req.finished_reason.to_json()
+                            if req.finished_reason is not None
+                            else None
+                        ),
                     }
                     output_meta_info.append(meta_info)
 
