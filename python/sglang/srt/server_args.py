@@ -22,6 +22,7 @@ from typing import List, Optional
 
 import torch
 
+from sglang.srt.openai_api.reasoning_parsers.reasoning_parser import DETECTOR_MAP
 from sglang.srt.hf_transformers_utils import check_gguf_file
 from sglang.srt.utils import (
     get_amdgpu_memory_capacity,
@@ -164,6 +165,10 @@ class ServerArgs:
     enable_custom_logit_processor: bool = False
     tool_call_parser: str = None
     enable_hierarchical_cache: bool = False
+
+    # Reasoning API support. Subjected to OpenAI API changes
+    enable_reasoning: bool = False
+    reasoning_parser: Optional[str] = None
 
     def __post_init__(self):
         # Set missing default values
@@ -898,6 +903,22 @@ class ServerArgs:
             action="store_true",
             help="Enable hierarchical cache",
         )
+        # Reasoning API support, subject to OpenAI API changes
+        parser.add_argument(
+            "--enable-reasoning",
+            action="store_true",
+            default=False,
+            help="Whether to enable reasoning_content for the model. If enabled, the model will be able to generate reasoning content.",
+        )
+        valid_reasoning_parsers = DETECTOR_MAP.keys()
+        parser.add_argument(
+            "--reasoning-parser",
+            type=str,
+            metavar="{" + ",".join(valid_reasoning_parsers) + "}",
+            default=None,
+            help="Select the reasoning parser depending on the model that you're using. This is used to parse the reasoning content into OpenAI API "
+            "format. Required for ``--enable-reasoning``.",
+        )
 
     @classmethod
     def from_cli_args(cls, args: argparse.Namespace):
@@ -937,6 +958,10 @@ class ServerArgs:
                     self.lora_paths[name] = path
                 else:
                     self.lora_paths[lora_path] = lora_path
+
+        # Enable reasoning needs a reasoning parser to be valid
+        if self.enable_reasoning and not self.reasoning_parser:
+            raise TypeError("Error: --enable-reasoning requires --reasoning-parser")
 
 
 def prepare_server_args(argv: List[str]) -> ServerArgs:

@@ -40,7 +40,11 @@ from sglang.srt.conversation import (
     generate_chat_conv,
     register_conv_template,
 )
-from sglang.srt.function_call_parser import TOOLS_TAG_LIST, FunctionCallParser
+from sglang.srt.function_call_parser import (
+    TOOLS_TAG_LIST,
+    FunctionCallParser,
+    StreamingParseResult,
+)
 from sglang.srt.managers.io_struct import EmbeddingReqInput, GenerateReqInput
 from sglang.srt.openai_api.protocol import (
     BatchRequest,
@@ -72,6 +76,7 @@ from sglang.srt.openai_api.protocol import (
     TopLogprob,
     UsageInfo,
 )
+from sglang.srt.openai_api.reasoning_parsers.reasoning_parser import ReasoningParser
 from sglang.utils import get_exception_traceback
 
 logger = logging.getLogger(__name__)
@@ -957,7 +962,7 @@ def v1_chat_generate_request(
 
         sampling_params = {
             "temperature": request.temperature,
-            "max_new_tokens": request.max_tokens,
+            "max_new_tokens": request.max_tokens or request.max_completion_tokens,
             "min_new_tokens": request.min_tokens,
             "stop": stop,
             "stop_token_ids": request.stop_token_ids,
@@ -1018,7 +1023,12 @@ def v1_chat_generate_request(
 
 
 def v1_chat_generate_response(
-    request, ret, to_file=False, cache_report=False, tool_call_parser=None
+    request,
+    ret,
+    to_file=False,
+    cache_report=False,
+    tool_call_parser=None,
+    reasoning_parser=None,
 ):
     choices = []
 
@@ -1076,6 +1086,15 @@ def v1_chat_generate_response(
             tool_choice = request.tool_choice
             tools = request.tools
 
+        if reasoning_parser:
+            parse_result: StreamingParseResult = reasoning_parser.parse_non_stream(text)
+            reasoning_content, content = (
+                parse_result.reasoning_text,
+                parse_result.normal_text,
+            )
+        else:
+            reasoning_content, content = None, text
+
         if tool_choice != "none" and any([i in text for i in TOOLS_TAG_LIST]):
             if finish_reason == "stop":
                 finish_reason = "tool_calls"
@@ -1104,7 +1123,8 @@ def v1_chat_generate_response(
                 "index": 0,
                 "message": {
                     "role": "assistant",
-                    "content": ret_item["text"] if tool_calls is None else None,
+                    "content": content if tool_calls is None else None,
+                    "reasoning_content": reasoning_content,
                     "tool_calls": tool_calls,
                 },
                 "logprobs": choice_logprobs,
@@ -1120,7 +1140,8 @@ def v1_chat_generate_response(
                 index=idx,
                 message=ChatMessage(
                     role="assistant",
-                    content=ret_item["text"] if tool_calls is None else None,
+                    content=content if tool_calls is None else None,
+                    reasoning_content=reasoning_content,
                     tool_calls=tool_calls,
                 ),
                 logprobs=choice_logprobs,
@@ -1185,6 +1206,19 @@ async def v1_chat_completions(tokenizer_manager, raw_request: Request):
     request_json = await raw_request.json()
     all_requests = [ChatCompletionRequest(**request_json)]
     adapted_request, request = v1_chat_generate_request(all_requests, tokenizer_manager)
+
+    reasoning_parser = None
+    if tokenizer_manager.server_args.enable_reasoning:
+        try:
+            reasoning_parser = ReasoningParser(
+                tokenizer_manager.server_args.reasoning_parser, True
+            )
+        except ValueError as e:
+            return create_error_response(
+                HTTPStatus.BAD_REQUEST,
+                f"--enable-reasoning requires reasoning_parser:'{reasoning_parser}' "
+                "which has not been registered",
+            )
 
     if adapted_request.stream:
         parser_dict = {}
@@ -1281,6 +1315,26 @@ async def v1_chat_completions(tokenizer_manager, raw_request: Request):
                     text = content["text"]
                     delta = text[len(stream_buffer) :]
                     new_stream_buffer = stream_buffer + delta
+
+                    if reasoning_parser:
+                        parse_result = reasoning_parser.parse_stream_chunk(delta)
+                        if parse_result.reasoning_text:
+                            choice_data = ChatCompletionResponseStreamChoice(
+                                index=index,
+                                delta=DeltaMessage(
+                                    reasoning_content=parse_result.reasoning_text
+                                ),
+                                finish_reason=(
+                                    finish_reason["type"] if finish_reason else ""
+                                ),
+                            )
+                            chunk = ChatCompletionStreamResponse(
+                                id=content["meta_info"]["id"],
+                                choices=[choice_data],
+                                model=request.model,
+                            )
+                            yield f"data: {chunk.model_dump_json()}\n\n"
+                        delta = parse_result.normal_text
 
                     if request.tool_choice != "none" and request.tools:
                         if index not in parser_dict:
@@ -1436,6 +1490,7 @@ async def v1_chat_completions(tokenizer_manager, raw_request: Request):
         ret,
         cache_report=tokenizer_manager.server_args.enable_cache_report,
         tool_call_parser=tokenizer_manager.server_args.tool_call_parser,
+        reasoning_parser=reasoning_parser,
     )
 
     return response
