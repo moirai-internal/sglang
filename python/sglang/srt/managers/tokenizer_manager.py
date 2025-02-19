@@ -425,6 +425,9 @@ class TokenizerManager:
             )
 
         input_token_num = len(input_ids) if input_ids is not None else 0
+        request_id = obj.rid if isinstance(obj.rid, str) else obj.rid[0]
+        logger.info(f"Request ID={request_id}, # Input Tokens={input_token_num}")
+
         if input_token_num >= self.context_len:
             raise ValueError(
                 f"The input ({input_token_num} tokens) is longer than the "
@@ -524,6 +527,7 @@ class TokenizerManager:
                     else:
                         msg = f"Finish: obj={dataclass_to_string_truncated(obj, max_length, skip_names=skip_names)}, out={dataclass_to_string_truncated(out, max_length, skip_names=out_skip_names)}"
                     logger.info(msg)
+                logger.info(f"Finish: Request ID={obj.rid}, Status=Finished")
                 del self.rid_to_state[obj.rid]
 
                 # Check if this was an abort/error created by scheduler
