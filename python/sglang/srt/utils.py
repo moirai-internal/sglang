@@ -624,7 +624,7 @@ def prepare_model_and_tokenizer(model_path: str, tokenizer_path: str):
 
 
 def configure_logger(server_args, prefix: str = ""):
-    format = f"[%(asctime)s{prefix}] %(message)s"
+    format = f"[%(asctime)s{prefix}] - %(levelname)s - %(filename)s:%(funcName)s - %(message)s"
     # format = f"[%(asctime)s.%(msecs)03d{prefix}] %(message)s"
     logging.basicConfig(
         level=getattr(logging, server_args.log_level.upper()),
@@ -1206,6 +1206,10 @@ def cuda_device_count_stateless() -> int:
 
 
 def dataclass_to_string_truncated(data, max_length=2048):
+    # Fields to ignore
+    # NOTE: Update fields here if obj type in tokenizer_manager.generate_request has changed
+    ignore_fields = {"text", "input_ids", "input_embeds", "image_data"}
+
     if isinstance(data, str):
         if len(data) > max_length:
             half_length = max_length // 2
@@ -1224,6 +1228,7 @@ def dataclass_to_string_truncated(data, max_length=2048):
             + ", ".join(
                 f"'{k}': {dataclass_to_string_truncated(v, max_length)}"
                 for k, v in data.items()
+                if k not in ignore_fields
             )
             + "}"
         )
@@ -1234,6 +1239,7 @@ def dataclass_to_string_truncated(data, max_length=2048):
             + ", ".join(
                 f"{f.name}={dataclass_to_string_truncated(getattr(data, f.name), max_length)}"
                 for f in fields
+                if f.name not in ignore_fields
             )
             + ")"
         )

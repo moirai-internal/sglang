@@ -284,6 +284,9 @@ class TokenizerManager:
             logger.info(
                 f"Receive: obj={dataclass_to_string_truncated(obj, max_length)}"
             )
+        logger.info(
+            f"Receive: Request ID={obj.rid}, obj={dataclass_to_string_truncated(obj)}"
+        )
 
         async with self.model_update_lock.reader_lock:
             is_single = obj.is_single
@@ -341,6 +344,9 @@ class TokenizerManager:
             )
 
         input_token_num = len(input_ids) if input_ids is not None else 0
+        request_id = obj.rid if isinstance(obj.rid, str) else obj.rid[0]
+        logger.info(f"Request ID={request_id}, # Input Tokens={input_token_num}")
+
         if input_token_num >= self.context_len:
             raise ValueError(
                 f"The input ({input_token_num} tokens) is longer than the "
@@ -430,6 +436,7 @@ class TokenizerManager:
                     max_length = 2048 if self.log_requests_level == 0 else 1 << 30
                     msg = f"Finish: obj={dataclass_to_string_truncated(obj, max_length)}, out={dataclass_to_string_truncated(out, max_length)}"
                     logger.info(msg)
+                logger.info(f"Finish: Request ID={obj.rid}, Status=Finished")
                 del self.rid_to_state[obj.rid]
 
                 # Check if this was an abort/error created by scheduler
