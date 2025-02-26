@@ -577,6 +577,8 @@ class Scheduler:
         )
 
         if error_msg:
+            req.origin_input_ids = [0]
+            req.sampling_params.max_new_tokens = 0
             self.waiting_queue.append(req)
             return
 
