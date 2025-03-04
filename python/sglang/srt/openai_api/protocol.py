@@ -329,6 +329,9 @@ class ChatCompletionRequest(BaseModel):
     lora_path: Optional[Union[List[Optional[str]], Optional[str]]] = None
     session_params: Optional[Dict] = None
 
+    # Extra parameters for OCI GenAI only.
+    request_id: Optional[str] = None
+
 
 class FunctionResponse(BaseModel):
     """Function response."""
@@ -401,6 +404,9 @@ class EmbeddingRequest(BaseModel):
     encoding_format: str = "float"
     dimensions: int = None
     user: Optional[str] = None
+
+    # Extra parameters for OCI GenAI only.
+    request_id: Optional[str] = None
 
 
 class EmbeddingObject(BaseModel):
