@@ -873,7 +873,7 @@ def configure_logger(server_args, prefix: str = ""):
             custom_config = json.loads(file.read())
         logging.config.dictConfig(custom_config)
         return
-    format = f"[%(asctime)s{prefix}] %(message)s"
+    format = f"[%(asctime)s{prefix}] - %(levelname)s - %(filename)s:%(funcName)s - %(message)s"
     # format = f"[%(asctime)s.%(msecs)03d{prefix}] %(message)s"
     logging.basicConfig(
         level=getattr(logging, server_args.log_level.upper()),

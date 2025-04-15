@@ -1199,7 +1199,9 @@ def v1_chat_generate_request(
         top_logprobs_nums = top_logprobs_nums[0]
         modalities_list = modalities_list[0]
         lora_paths = lora_paths[0]
-        request_ids = request_ids[0]
+        # NOTE: If request_ids is provided, usually through a .jsonl in batch_request,
+        # it takes precedence over the request_id field in each individual request.
+        request_ids = request_ids[0] or all_requests[0].rid
     else:
         if tokenizer_manager.model_config.is_multimodal:
             # processor will need text input
@@ -1209,6 +1211,7 @@ def v1_chat_generate_request(
                 prompt_kwargs = {"text": input_ids}
             else:
                 prompt_kwargs = {"input_ids": input_ids}
+        request_ids = request_ids or [req.rid for req in all_requests]
 
     adapted_request = GenerateReqInput(
         **prompt_kwargs,
