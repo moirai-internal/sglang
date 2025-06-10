@@ -47,8 +47,8 @@ from sglang.srt.disaggregation.utils import (
     register_disaggregation_server,
 )
 from sglang.srt.entrypoints.engine import _launch_subprocesses
-from sglang.srt.function_call.function_call_parser import FunctionCallParser
 from sglang.srt.entrypoints.server_middlewares import OpcRequestIdMiddleware
+from sglang.srt.function_call.function_call_parser import FunctionCallParser
 from sglang.srt.managers.io_struct import (
     AbortReq,
     CloseSessionReqInput,
