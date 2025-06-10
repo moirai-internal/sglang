@@ -113,10 +113,12 @@ class BaseMultimodalProcessor(ABC):
             kwargs["audios"] = audios
 
         processor = self._processor
-        if hasattr(processor, "image_processor") and isinstance(
-            processor.image_processor, BaseImageProcessorFast
-        ):
-            kwargs["device"] = "cuda"
+        # NOTE: temporarily disable GPU processing for transformers
+        # to save GPU memory usage
+        # if hasattr(processor, "image_processor") and isinstance(
+        #     processor.image_processor, BaseImageProcessorFast
+        # ):
+        #     kwargs["device"] = "cuda"
         result = processor.__call__(
             text=[input_text],
             padding=True,
