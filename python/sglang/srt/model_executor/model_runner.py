@@ -715,6 +715,7 @@ class ModelRunner:
                 world_size=world_size,
                 rank=rank,
                 group_name=group_name,
+                device_id=self.gpu_id,
             )
             return True, "Succeeded to initialize custom process group."
         except Exception as e:
