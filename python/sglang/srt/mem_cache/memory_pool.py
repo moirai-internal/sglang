@@ -54,6 +54,7 @@ class ReqToTokenPool:
         device: str,
         enable_memory_saver: bool,
     ):
+
         memory_saver_adapter = TorchMemorySaverAdapter.create(
             enable=enable_memory_saver
         )
@@ -61,7 +62,7 @@ class ReqToTokenPool:
         self.size = size
         self.max_context_len = max_context_len
         self.device = device
-        with memory_saver_adapter.region():
+        with memory_saver_adapter.region("kv_cache"):
             self.req_to_token = torch.zeros(
                 (size, max_context_len), dtype=torch.int32, device=device
             )
@@ -292,7 +293,7 @@ class MHATokenToKVPool(KVCache):
         )
 
     def _create_buffers(self):
-        with self.memory_saver_adapter.region():
+        with self.memory_saver_adapter.region("kv_cache"):
             with (
                 torch.cuda.use_mem_pool(self.custom_mem_pool)
                 if self.enable_custom_mem_pool
@@ -610,7 +611,7 @@ class MLATokenToKVPool(KVCache):
         else:
             self.custom_mem_pool = None
 
-        with self.memory_saver_adapter.region():
+        with self.memory_saver_adapter.region("kv_cache"):
             with (
                 torch.cuda.use_mem_pool(self.custom_mem_pool)
                 if self.custom_mem_pool
@@ -753,7 +754,7 @@ class DoubleSparseTokenToKVPool(KVCache):
             end_layer,
         )
 
-        with self.memory_saver_adapter.region():
+        with self.memory_saver_adapter.region("kv_cache"):
             # [size, head_num, head_dim] for each layer
             self.k_buffer = [
                 torch.zeros(
