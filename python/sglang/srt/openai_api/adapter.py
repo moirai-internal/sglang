@@ -1283,14 +1283,8 @@ def v1_chat_generate_request(
         top_logprobs_nums = top_logprobs_nums[0]
         modalities_list = modalities_list[0]
         lora_paths = lora_paths[0]
-<<<<<<< HEAD
         request_ids = request_ids[0]
         return_hidden_states = return_hidden_states[0]
-=======
-        # NOTE: If request_ids is provided, usually through a .jsonl in batch_request,
-        # it takes precedence over the request_id field in each individual request.
-        request_ids = request_ids[0] or all_requests[0].rid
->>>>>>> origin/features-based-on-v0.4.6.post5
     else:
         if tokenizer_manager.model_config.is_multimodal:
             # processor will need text input
