@@ -127,5 +127,9 @@ class MistralDetector(BaseFormatDetector):
             sequence_start_token=self.bot_token,
             sequence_end_token=self.eot_token,
             function_format="json",
+<<<<<<< HEAD
             tool_call_separator=self.tool_call_separator,
+=======
+            tool_call_separator=", ",
+>>>>>>> origin/features-based-on-v0.4.6.post5
         )

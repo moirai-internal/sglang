@@ -29,7 +29,10 @@ class Qwen25Detector(BaseFormatDetector):
         super().__init__()
         self.bot_token = "<tool_call>\n"
         self.eot_token = "\n</tool_call>"
+<<<<<<< HEAD
         self.tool_call_separator = "\n"
+=======
+>>>>>>> origin/features-based-on-v0.4.6.post5
         self._normal_text_buffer = ""  # Buffer for handling partial end tokens
 
     def has_tool_call(self, text: str) -> bool:
@@ -105,6 +108,7 @@ class Qwen25Detector(BaseFormatDetector):
         return result
 
     def structure_info(self) -> _GetInfoFunc:
+        # TODO: Update the begin and end tokens with '\n' if necessary
         return lambda name: StructureInfo(
             begin='<tool_call>\n{"name":"' + name + '", "arguments":',
             end="}\n</tool_call>",

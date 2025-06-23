@@ -107,6 +107,7 @@ class BaseFormatDetector(ABC):
         # Append new text to buffer
         self._buffer += new_text
         current_text = self._buffer
+<<<<<<< HEAD
 
         # The current_text has tool_call if it is the start of a new tool call sequence
         # or it is the start of a new tool call after a tool call separator, when there is a previous tool call
@@ -118,6 +119,9 @@ class BaseFormatDetector(ABC):
                 and current_text.startswith(self.tool_call_separator + "{")
             )
         ):
+=======
+        if not (self.bot_token in current_text or current_text.startswith("{")):
+>>>>>>> origin/features-based-on-v0.4.6.post5
             # Only clear buffer if we're sure no tool call is starting
             if not self._ends_with_partial_token(self._buffer, self.bot_token):
                 normal_text = self._buffer

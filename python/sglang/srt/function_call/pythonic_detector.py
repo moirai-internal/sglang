@@ -41,15 +41,22 @@ class PythonicDetector(BaseFormatDetector):
         return text
 
     def has_tool_call(self, text: str) -> bool:
+<<<<<<< HEAD
         return bool(self.tool_call_regex.search(self._text_strip(text.strip())))
+=======
+        return bool(self.tool_call_regex.search(text.strip()))
+>>>>>>> origin/features-based-on-v0.4.6.post5
 
     def detect_and_parse(self, text: str, tools: List[Tool]) -> StreamingParseResult:
         # Try parsing the text as a Python list of function calls
         text = text.strip()
 
+<<<<<<< HEAD
         # Remove unexpected <|python_start|> and <|python_end|> for llama4
         text = self._text_strip(text)
 
+=======
+>>>>>>> origin/features-based-on-v0.4.6.post5
         match = self.tool_call_regex.search(text)
         if match is None:
             return StreamingParseResult(normal_text=text, calls=[])
