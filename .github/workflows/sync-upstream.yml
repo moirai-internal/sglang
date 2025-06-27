@@ -50,32 +50,25 @@ jobs:
           echo "sync_needed=true" >> $GITHUB_OUTPUT
           echo "Found $BEHIND_COUNT commits behind upstream"
 
-          git rebase upstream/main || {
-            echo "Rebase conflict detected. Creating a PR instead."
-            git rebase --abort
+          git merge upstream/main --no-edit || {
+            echo "Merge conflict detected. Creating a PR instead."
             exit 1
           }
           git push --force-with-lease origin main
         continue-on-error: true
         id: sync_main
 
-      - name: Create sync PR if rebase failed
+      - name: Create sync PR if merge failed
         if: steps.sync_main.outcome == 'failure' && steps.sync_main.outputs.sync_needed == 'true'
         run: |
           BRANCH_NAME="sync-upstream-$(date +'%Y%m%d-%H%M%S')"
           git checkout -b "$BRANCH_NAME"
 
-          # Try to rebase again, this time we'll commit the conflicts
-          git rebase upstream/main || {
-            echo "Resolving rebase conflicts..."
+          # Try to merge again, this time we'll commit the conflicts
+          git merge upstream/main --no-edit || {
+            echo "Resolving merge conflicts..."
             git add .
-            git rebase --continue || {
-              git rebase --abort
-              git merge upstream/main --no-edit --allow-unrelated-histories || {
-                git add .
-                git commit -m "Resolve sync conflicts from upstream"
-              }
-            }
+            git commit -m "Resolve sync conflicts from upstream"
           }
           git push origin "$BRANCH_NAME"
 
@@ -84,7 +77,8 @@ jobs:
             --title "Sync from upstream ($(date +'%Y-%m-%d'))" \
             --body "Automated sync from upstream repository with conflicts resolved. Please review before merging." \
             --head "$BRANCH_NAME" \
-            --base main
+            --base main \
+            --reviewer "CatherineSue,shenoyvvarun,slin1237,YouNeedCryDear,upfixer,key4ng"
         env:
           GITHUB_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN || secrets.GITHUB_TOKEN }}
 
