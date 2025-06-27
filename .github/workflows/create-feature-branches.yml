@@ -45,24 +45,24 @@ jobs:
         id: previous_tag
         run: |
           CURRENT_TAG="${{ steps.get_tag.outputs.tag }}"
-          
+
           # Get all tags sorted by version (newest first)
           ALL_TAGS=$(git tag --sort=-version:refname)
-          
+
           # Find the position of current tag and get all tags after it (older versions)
           FOUND_CURRENT=false
           PREVIOUS_TAG_WITH_BRANCH=""
           PREVIOUS_BRANCH_NAME=""
-          
+
           echo "Searching for previous tag with existing feature branch..."
           echo "Current tag: $CURRENT_TAG"
-          
+
           for tag in $ALL_TAGS; do
             if [[ "$FOUND_CURRENT" == "true" ]]; then
               # This is a previous tag, check if it has a feature branch
               CANDIDATE_BRANCH="features-based-on-$tag"
               echo "Checking if branch exists for tag $tag: $CANDIDATE_BRANCH"
-              
+
               if git ls-remote --heads origin "$CANDIDATE_BRANCH" | grep -q "$CANDIDATE_BRANCH"; then
                 echo "Found previous tag with branch: $tag -> $CANDIDATE_BRANCH"
                 PREVIOUS_TAG_WITH_BRANCH="$tag"
@@ -76,7 +76,7 @@ jobs:
               echo "Found current tag position in list"
             fi
           done
-          
+
           if [[ -z "$PREVIOUS_TAG_WITH_BRANCH" ]]; then
             echo "No previous tag with existing feature branch found"
             echo "exists=false" >> $GITHUB_OUTPUT
@@ -107,13 +107,13 @@ jobs:
         run: |
           PREVIOUS_TAG="${{ steps.previous_tag.outputs.tag }}"
           PREVIOUS_BRANCH_NAME="${{ steps.previous_tag.outputs.branch_name }}"
-          
+
           # Fetch the previous branch
           git fetch origin "$PREVIOUS_BRANCH_NAME:$PREVIOUS_BRANCH_NAME"
-          
+
           # Get commits between the previous tag and HEAD of previous branch
           COMMITS=$(git rev-list --reverse "$PREVIOUS_TAG..origin/$PREVIOUS_BRANCH_NAME")
-          
+
           if [[ -z "$COMMITS" ]]; then
             echo "No commits to cherry-pick"
             echo "has_commits=false" >> $GITHUB_OUTPUT
@@ -145,9 +145,9 @@ jobs:
         run: |
           BRANCH_NAME="${{ steps.get_tag.outputs.branch_name }}"
           COMMITS="${{ steps.get_commits.outputs.commits }}"
-          
+
           git checkout "$BRANCH_NAME"
-          
+
           # Try cherry-picking commits
           CONFLICT_OCCURRED=false
           for commit in $COMMITS; do
@@ -160,7 +160,7 @@ jobs:
               break
             fi
           done
-          
+
           if [[ "$CONFLICT_OCCURRED" == "true" ]]; then
             echo "conflict=true" >> $GITHUB_OUTPUT
             echo "Conflicts detected during cherry-pick"
@@ -177,15 +177,15 @@ jobs:
           PREVIOUS_TAG="${{ steps.previous_tag.outputs.tag }}"
           CURRENT_TAG="${{ steps.get_tag.outputs.tag }}"
           COMMITS="${{ steps.get_commits.outputs.commits }}"
-          
+
           # Create a new branch for the PR
           PR_BRANCH="pr-$BRANCH_NAME"
           git checkout -b "$PR_BRANCH" "$BRANCH_NAME"
           git push origin "$PR_BRANCH"
-          
+
           # Create PR using GitHub CLI or API
           COMMIT_LIST_MD=$(echo $COMMITS | tr ' ' '\n' | while read commit; do echo "- $commit"; done)
-          
+
           # Create PR body content
           PR_BODY="## Cherry-pick: $PREVIOUS_BRANCH_NAME → $BRANCH_NAME
 
@@ -197,7 +197,7 @@ jobs:
           **Commits to cherry-pick:**
           $COMMIT_LIST_MD
           "
-          
+
           gh pr create \
             --title "Cherry-pick: $PREVIOUS_BRANCH_NAME → $BRANCH_NAME" \
             --body "$PR_BODY" \
@@ -215,24 +215,24 @@ jobs:
           PREVIOUS_TAG="${{ steps.previous_tag.outputs.tag }}"
           CURRENT_TAG="${{ steps.get_tag.outputs.tag }}"
           COMMITS="${{ steps.get_commits.outputs.commits }}"
-          
+
           # Create a conflict resolution branch
           CONFLICT_BRANCH="cherry-pick-conflicts-$BRANCH_NAME"
           git checkout -b "$CONFLICT_BRANCH" "$BRANCH_NAME"
-          
+
           # Create an empty commit to establish the branch and enable PR creation
           COMMIT_LIST=$(echo $COMMITS | tr ' ' '\n' | while read commit; do git log --oneline -1 $commit 2>/dev/null || echo $commit; done)
-          
+
           # Now attempt the merge - conflicts will be left in proper Git state
           if ! git merge origin/"$PREVIOUS_BRANCH_NAME" --no-ff -m "Cherry-pick commits from $PREVIOUS_BRANCH_NAME"; then
             echo "Merge conflicts detected. Committing conflict markers so they can be pushed."
-            
+
             # Capture conflicted files before staging
             CONFLICTED_FILES=$(git diff --name-only --diff-filter=U | tr '\n' ' ')
-            
+
             # Add all files including conflict markers
             git add .
-            
+
             # Commit the conflict markers with clear documentation
             git commit -m "🚧 CONFLICTS: Cherry-pick from $PREVIOUS_BRANCH_NAME to $BRANCH_NAME
 
@@ -243,17 +243,17 @@ jobs:
             $COMMIT_LIST
 
             📝 Edit files to remove conflict markers"
-            
+
             # Push the conflict markers
             git push origin "$CONFLICT_BRANCH"
           else
             echo "Merge completed successfully without conflicts."
             git push origin "$CONFLICT_BRANCH"  # Push the successful merge
           fi
-          
+
           # Create PR using GitHub CLI or API
           COMMIT_LIST_MD=$(echo $COMMITS | tr ' ' '\n' | while read commit; do echo "- $commit"; done)
-          
+
           # Create PR body content
           PR_BODY="## 🚧 Cherry-pick Conflicts Need Resolution
 
@@ -285,7 +285,7 @@ jobs:
             \`\`\`
 
           🎯 **No force push needed!**"
-          
+
           gh pr create \
             --title "Cherry-pick conflicts: $PREVIOUS_BRANCH_NAME → $BRANCH_NAME" \
             --body "$PR_BODY" \
