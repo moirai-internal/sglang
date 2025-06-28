@@ -433,9 +433,7 @@ class DecodePreallocQueue:
             else 0
         )
 
-        available_size = self.token_to_kv_pool_allocator.available_size()
-
-        allocatable_tokens = available_size - max(
+        allocatable_tokens = self.token_to_kv_pool_allocator.available_size() - max(
             # preserve some space for future decode
             self.num_reserved_decode_tokens
             * (
@@ -579,11 +577,11 @@ class DecodeTransferQueue:
                 idx = decode_req.metadata_buffer_index
                 (
                     output_id,
-                    output_hidden_states,
                     output_token_logprobs_val,
                     output_token_logprobs_idx,
                     output_top_logprobs_val,
                     output_top_logprobs_idx,
+                    output_hidden_states,
                 ) = self.metadata_buffers.get_buf(idx)
 
                 decode_req.req.output_ids.append(output_id[0].item())
