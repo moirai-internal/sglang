@@ -23,9 +23,9 @@ import torch
 import triton
 import triton.language as tl
 
-from sglang.math_utils import align
 from sglang.srt.layers.quantization import deep_gemm_wrapper
 from sglang.srt.utils import (
+    align,
     direct_register_custom_op,
     get_device_core_count,
     get_device_name,
@@ -160,8 +160,8 @@ def _per_token_group_quant_fp8_colmajor(
     """
     # Map the program id to the row of X and Y it should compute.
     g_id = tl.program_id(0)
-    y_ptr += g_id * group_size
-    y_q_ptr += g_id * group_size
+    y_ptr += g_id.to(tl.int64) * group_size
+    y_q_ptr += g_id.to(tl.int64) * group_size
 
     # Convert g_id the flattened block coordinate to 2D so we can index
     # into the output y_scales matrix
