@@ -62,9 +62,12 @@ jobs:
         if: steps.sync_main.outcome == 'failure' && steps.sync_main.outputs.sync_needed == 'true'
         run: |
           BRANCH_NAME="sync-upstream-$(date +'%Y%m%d-%H%M%S')"
+          
+          # Reset to clean state and create branch from main
+          git reset --hard origin/main
           git checkout -b "$BRANCH_NAME"
 
-          # Try to merge again, this time we'll commit the conflicts
+          # Try to merge upstream, this time we'll handle conflicts
           git merge upstream/main --no-edit || {
             echo "Resolving merge conflicts..."
             git add .
@@ -72,12 +75,13 @@ jobs:
           }
           git push origin "$BRANCH_NAME"
 
-          # Create PR using GitHub CLI
+          # Create PR using GitHub CLI with explicit repo
           gh pr create \
+            --repo "${{ github.repository }}" \
             --title "Sync from upstream ($(date +'%Y-%m-%d'))" \
             --body "Automated sync from upstream repository with conflicts resolved. Please review before merging." \
             --head "$BRANCH_NAME" \
-            --base main \
+            --base "main" \
             --reviewer "CatherineSue,shenoyvvarun,slin1237,YouNeedCryDear,upfixer,key4ng"
         env:
           GITHUB_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN || secrets.GITHUB_TOKEN }}
