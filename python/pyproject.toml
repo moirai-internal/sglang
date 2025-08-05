@@ -18,11 +18,7 @@ dependencies = ["aiohttp", "requests", "tqdm", "numpy", "IPython", "setproctitle
 [project.optional-dependencies]
 runtime_common = [
     "blobfile==3.0.0",
-<<<<<<< HEAD
     "build",
-=======
-    "accelerate",
->>>>>>> origin/features-based-on-v0.4.7.post1
     "compressed-tensors",
     "datasets",
     "fastapi",
