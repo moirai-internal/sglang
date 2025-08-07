@@ -17,8 +17,8 @@ on:
         type: string
 
 env:
-  REGISTRY: ${{ env.OCIR_REGISTRY }}
-  REGISTRY_NAMESPACE: ${{ env.OCIR_NAMESPACE }}
+  REGISTRY: fra.ocir.io
+  REGISTRY_NAMESPACE: idqj093njucb
   K8S_NAMESPCE: github-actions
 
 jobs:
@@ -82,7 +82,7 @@ jobs:
       - name: Log in to Container Registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.OCIR_REGISTRY }}
+          registry: ${{ env.REGISTRY }}
           username: ${{ secrets.OCIR_ACCOUNT }}
           password: ${{ secrets.OCIR_TOKEN }}
 
