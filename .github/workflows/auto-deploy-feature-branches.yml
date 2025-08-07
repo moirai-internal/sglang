@@ -1,9 +1,9 @@
 name: Build and Deploy Feature Branches
 
 on:
-  create:
-    branches:
-      - "features-based-on-v*"
+  # create:
+  #   branches:
+  #     - "features-based-on-v*"
   workflow_dispatch:
     inputs:
       branch_name:
