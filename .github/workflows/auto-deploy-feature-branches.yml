@@ -1,4 +1,4 @@
-name: Auto Deploy Feature Branches
+name: Build and Deploy Feature Branches
 
 on:
   create:
