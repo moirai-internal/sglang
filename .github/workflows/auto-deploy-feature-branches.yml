@@ -30,7 +30,7 @@ jobs:
       contents: read
       packages: write
       id-token: write
-    
+
     steps:
       - name: Delete huge unnecessary tools folder
         run: rm -rf /opt/hostedtoolcache
@@ -59,22 +59,22 @@ jobs:
           else
             BRANCH_NAME="${{ github.ref_name }}"
           fi
-          
+
           # Extract version from branch name (features-based-on-vX.Y.Z -> vX.Y.Z)
           VERSION=$(echo "$BRANCH_NAME" | sed 's/features-based-on-//')
-          
+
           # Get short commit hash
           COMMIT_HASH=$(git rev-parse --short HEAD)
-          
+
           # Create full tag
           FULL_TAG="${VERSION}.${COMMIT_HASH}"
-          
+
           echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "commit_hash=$COMMIT_HASH" >> $GITHUB_OUTPUT
           echo "full_tag=$FULL_TAG" >> $GITHUB_OUTPUT
           echo "image_name=${REGISTRY}/${REGISTRY_NAMESPACE}/official-sglang" >> $GITHUB_OUTPUT
-          
+
           echo "Branch: $BRANCH_NAME"
           echo "Version: $VERSION"
           echo "Commit: $COMMIT_HASH"
@@ -130,7 +130,7 @@ jobs:
             # Default models for auto-deployment
             MODELS="llama-3-3-70b-instruct,llama-4-scout-17b-16e-instruct"
           fi
-          
+
           # Convert comma-separated string to array and output as JSON
           IFS=',' read -ra MODEL_ARRAY <<< "$MODELS"
           MODELS_JSON=$(printf '%s\n' "${MODEL_ARRAY[@]}" | jq -R . | jq -s .)
@@ -144,11 +144,11 @@ jobs:
           IMAGE="${{ steps.version_info.outputs.image_name }}:${{ steps.version_info.outputs.full_tag }}"
           BRANCH_NAME="${{ steps.version_info.outputs.branch_name }}"
           VERSION="${{ steps.version_info.outputs.version }}"
-          
+
           # Deploy each model sequentially
           echo "$MODELS_JSON" | jq -r '.[]' | while read -r model; do
             echo "Deploying model: $model"
-            
+
             # Sanitize model name for k8s resource names
             MODEL_NAME=$(echo "$model" | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
             # Create namespace name following the pattern from example
@@ -156,15 +156,15 @@ jobs:
             NAMESPACE=$(echo "$NAMESPACE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-zA-Z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
             # Ensure namespace name is valid (max 63 chars, no leading/trailing hyphens)
             NAMESPACE=$(echo "$NAMESPACE" | cut -c1-63 | sed 's/-$//')
-            
+
             # Create runtime name
             RUNTIME_NAME="srt-$MODEL_NAME"
             RUNTIME_NAME=$(echo "$RUNTIME_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-zA-Z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
             RUNTIME_NAME=$(echo "$RUNTIME_NAME" | cut -c1-63 | sed 's/-$//')
-            
+
             echo "Namespace: $NAMESPACE"
             echo "Runtime: $RUNTIME_NAME"
-            
+
             # Create InferenceService manifest
             cat <<EOF > isvc-$MODEL_NAME.yaml
           ---
@@ -191,18 +191,18 @@ jobs:
             runtime:
               name: $RUNTIME_NAME
           EOF
-            
+
             # Apply the InferenceService
             kubectl apply -f isvc-$MODEL_NAME.yaml
-            
+
             # Wait for InferenceService to be ready (with timeout)
             echo "Waiting for InferenceService $MODEL_NAME to be ready in namespace $NAMESPACE..."
-            
+
             # Check if the InferenceService exists and wait for it to be ready
             TIMEOUT=600
             ELAPSED=0
             READY=false
-            
+
             while [ $ELAPSED -lt $TIMEOUT ]; do
               # Check if InferenceService exists and get its status
               if kubectl get inferenceservice $MODEL_NAME -n $NAMESPACE >/dev/null 2>&1; then
@@ -215,11 +215,11 @@ jobs:
               else
                 echo "InferenceService not found yet (waiting...)"
               fi
-              
+
               sleep 60
               ELAPSED=$((ELAPSED + 10))
             done
-            
+
             if [ "$READY" = "true" ]; then
               echo "✅ Successfully deployed InferenceService for model: $model"
               echo "   Namespace: $NAMESPACE"
@@ -234,10 +234,10 @@ jobs:
               kubectl get events -n $NAMESPACE --sort-by=.metadata.creationTimestamp | tail -10
               # Continue with next model instead of failing the entire workflow
             fi
-            
+
             # Clean up manifest file
             rm -f isvc-$MODEL_NAME.yaml
-            
+
             echo "---"
           done
 
@@ -245,31 +245,31 @@ jobs:
         run: |
           MODELS_JSON='${{ steps.models.outputs.models_json }}'
           VERSION="${{ steps.version_info.outputs.version }}"
-          
+
           echo "=== Deployment Summary ==="
           echo "Version: $VERSION"
           echo "Image: ${{ steps.version_info.outputs.image_name }}:${{ steps.version_info.outputs.full_tag }}"
           echo ""
-          
+
           # Check status for each deployed model
           echo "$MODELS_JSON" | jq -r '.[]' | while read -r model; do
             MODEL_NAME=$(echo "$model" | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
             NAMESPACE="$MODEL_NAME-$VERSION"
             NAMESPACE=$(echo "$NAMESPACE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-zA-Z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
             NAMESPACE=$(echo "$NAMESPACE" | cut -c1-63 | sed 's/-$//')
-            
+
             echo "=== Model: $model ==="
             echo "Namespace: $NAMESPACE"
-            
+
             if kubectl get namespace $NAMESPACE >/dev/null 2>&1; then
               echo "InferenceServices:"
               kubectl get inferenceservice -n $NAMESPACE -o wide 2>/dev/null || echo "No InferenceServices found"
               echo ""
-              
+
               echo "Pods:"
               kubectl get pods -n $NAMESPACE -o wide 2>/dev/null || echo "No pods found"
               echo ""
-              
+
               echo "Recent Events:"
               kubectl get events -n $NAMESPACE --sort-by=.metadata.creationTimestamp 2>/dev/null | tail -5 || echo "No events found"
             else
@@ -282,15 +282,15 @@ jobs:
         run: |
           MODELS_JSON='${{ steps.models.outputs.models_json }}'
           VERSION="${{ steps.version_info.outputs.version }}"
-          
+
           echo "## 🚀 InferenceService Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Branch:** \`${{ steps.version_info.outputs.branch_name }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Version:** \`${{ steps.version_info.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY  
+          echo "**Version:** \`${{ steps.version_info.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Commit:** \`${{ steps.version_info.outputs.commit_hash }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Docker Image:** \`${{ steps.version_info.outputs.image_name }}:${{ steps.version_info.outputs.full_tag }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
+
           echo "### Deployed Models & Namespaces" >> $GITHUB_STEP_SUMMARY
           echo "$MODELS_JSON" | jq -r '.[]' | while read -r model; do
             MODEL_NAME=$(echo "$model" | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
@@ -300,14 +300,14 @@ jobs:
             RUNTIME_NAME="srt-$MODEL_NAME-$VERSION"
             RUNTIME_NAME=$(echo "$RUNTIME_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-zA-Z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
             RUNTIME_NAME=$(echo "$RUNTIME_NAME" | cut -c1-63 | sed 's/-$//')
-            
+
             echo "- **Model:** \`$model\`" >> $GITHUB_STEP_SUMMARY
             echo "  - **Namespace:** \`$NAMESPACE\`" >> $GITHUB_STEP_SUMMARY
             echo "  - **InferenceService:** \`$MODEL_NAME\`" >> $GITHUB_STEP_SUMMARY
             echo "  - **Runtime:** \`$RUNTIME_NAME\`" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
           done
-          
+
           echo "### Commands to Access" >> $GITHUB_STEP_SUMMARY
           echo '```bash' >> $GITHUB_STEP_SUMMARY
           echo "# List all InferenceServices across namespaces" >> $GITHUB_STEP_SUMMARY
