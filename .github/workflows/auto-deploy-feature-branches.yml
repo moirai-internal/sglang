@@ -1,6 +1,7 @@
 name: Build and Deploy Feature Branches
 
 on:
+  pull_request:
   # create:
   #   branches:
   #     - "features-based-on-v*"
