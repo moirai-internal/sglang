@@ -27,7 +27,7 @@ jobs:
           else
             TAG="${GITHUB_REF#refs/tags/}"
           fi
-          
+
           # Check if this is a release candidate or pre-release tag
           # Skip tags with .rc, -rc, rc (no separator), .alpha, -beta, etc.
           if [[ "$TAG" =~ [\.-]?(rc|alpha|beta|pre|dev)[0-9]*$ ]]; then
@@ -91,7 +91,7 @@ jobs:
                 echo "Skipping pre-release tag: $tag"
                 continue
               fi
-              
+
               # This is a previous tag, check if it has a feature branch
               CANDIDATE_BRANCH="features-based-on-$tag"
               echo "Checking if branch exists for tag $tag: $CANDIDATE_BRANCH"
