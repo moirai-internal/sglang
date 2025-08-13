@@ -20,7 +20,7 @@ on:
 env:
   REGISTRY: fra.ocir.io
   REGISTRY_NAMESPACE: idqj093njucb
-  K8S_NAMESPCE: github-actions
+  K8S_NAMESPACE: github-actions
 
 jobs:
   build-and-deploy:
@@ -118,7 +118,7 @@ jobs:
 
       - name: Verify kubectl connection
         run: |
-          kubectl cluster-info
+          kubectl cluster-info --namespace ${K8S_NAMESPACE}
           kubectl get nodes
 
       - name: Prepare model list
@@ -152,7 +152,7 @@ jobs:
             # Sanitize model name for k8s resource names
             MODEL_NAME=$(echo "$model" | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
             # Create namespace name following the pattern from example
-            NAMESPACE=${K8S_NAMESPCE}
+            NAMESPACE=${K8S_NAMESPACE}
             NAMESPACE=$(echo "$NAMESPACE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-zA-Z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
             # Ensure namespace name is valid (max 63 chars, no leading/trailing hyphens)
             NAMESPACE=$(echo "$NAMESPACE" | cut -c1-63 | sed 's/-$//')
