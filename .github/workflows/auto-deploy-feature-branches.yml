@@ -328,6 +328,46 @@ jobs:
             echo "---"
           done
 
+      - name: Cleanup on failure
+        if: failure()
+        run: |
+          echo "🧹 Cleaning up resources after workflow failure..."
+
+          # Get models list for cleanup
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            MODELS="${{ github.event.inputs.models }}"
+          else
+            MODELS=${ISVC_MODELS}
+          fi
+
+          # Clean up any remaining resources
+          IFS=',' read -ra MODEL_ARRAY <<< "$MODELS"
+          for model in "${MODEL_ARRAY[@]}"; do
+            MODEL_NAME=$(echo "$model" | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
+            NAMESPACE=${K8S_NAMESPACE}
+            NAMESPACE=$(echo "$NAMESPACE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-zA-Z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
+            NAMESPACE=$(echo "$NAMESPACE" | cut -c1-63 | sed 's/-$//')
+
+            echo "Cleaning up resources for model: $model"
+
+            # Try to delete InferenceService
+            kubectl delete inferenceservice $MODEL_NAME -n $NAMESPACE 2>/dev/null || echo "No InferenceService $MODEL_NAME to cleanup"
+
+            # Try to delete BenchmarkJob
+            kubectl delete benchmarkjob benchmark-$MODEL_NAME -n $NAMESPACE 2>/dev/null || echo "No BenchmarkJob benchmark-$MODEL_NAME to cleanup"
+
+            # Clean up any manifest files
+            rm -f isvc-$MODEL_NAME.yaml benchmark-$MODEL_NAME.yaml
+          done
+
+          echo "Cleanup completed"
+
+      - name: Cleanup kubeconfig
+        if: always()
+        run: |
+          echo "🧹 Cleaning up kubeconfig credentials..."
+          rm -f $HOME/.kube/config
+          echo "Kubeconfig cleanup completed"
 
       - name: Create deployment summary
         run: |
