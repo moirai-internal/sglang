@@ -21,6 +21,8 @@ env:
   REGISTRY: fra.ocir.io
   REGISTRY_NAMESPACE: idqj093njucb
   K8S_NAMESPACE: github-actions
+  CONTAINER_NAME: official-sgl
+  CUDA_SUFFIX: cu126
 
 jobs:
   build-and-deploy:
@@ -68,13 +70,13 @@ jobs:
           COMMIT_HASH=$(git rev-parse --short HEAD)
 
           # Create full tag
-          FULL_TAG="${VERSION}.${COMMIT_HASH}"
+          FULL_TAG="${VERSION}.${COMMIT_HASH}-${CUDA_SUFFIX}"
 
           echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "commit_hash=$COMMIT_HASH" >> $GITHUB_OUTPUT
           echo "full_tag=$FULL_TAG" >> $GITHUB_OUTPUT
-          echo "image_name=${REGISTRY}/${REGISTRY_NAMESPACE}/official-sglang" >> $GITHUB_OUTPUT
+          echo "image_name=${REGISTRY}/${REGISTRY_NAMESPACE}/${CONTAINER_NAME}" >> $GITHUB_OUTPUT
 
           echo "Branch: $BRANCH_NAME"
           echo "Version: $VERSION"
@@ -229,7 +231,6 @@ jobs:
               echo "   Namespace: $NAMESPACE"
               echo "   InferenceService: $MODEL_NAME"
               echo "   Runtime: $RUNTIME_NAME"
-              kubectl delete -f isvc-$MODEL_NAME.yaml
             else
               echo "❌ Failed to deploy or timeout waiting for InferenceService: $model"
               echo "Checking InferenceService status..."
@@ -240,6 +241,7 @@ jobs:
             fi
 
             # Clean up manifest file
+            kubectl delete -f isvc-$MODEL_NAME.yaml
             rm -f isvc-$MODEL_NAME.yaml
 
             echo "---"
