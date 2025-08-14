@@ -215,22 +215,16 @@ jobs:
                 name: $MODEL_NAME
                 namespace: $NAMESPACE
             task: text-to-text
-            trafficScenarios:
-              - "N(480,240)/(300,150)"
-              - "D(100,100)"
-              - "D(100,1000)"
-              - "D(2000,200)"
-              - "D(7800,200)"
             numConcurrency:
               - 1
               - 128
             maxTimePerIteration: 15
             maxRequestsPerIteration: 1000
-            # outputLocation:
-            #   storageUri: "oci://n/${REGISTRY_NAMESPACE}/b/${BUCKET_NAME}/o/${CONTAINER_NAME}/${{ steps.version_info.outputs.full_tag }}/$MODEL_NAME"
-            #   parameters:
-            #     auth: "instance_principal"
-            #     region: "eu-frankfurt-1"
+            outputLocation:
+              storageUri: "oci://n/${REGISTRY_NAMESPACE}/b/${BUCKET_NAME}/o/${CONTAINER_NAME}/${{ steps.version_info.outputs.full_tag }}/$MODEL_NAME"
+              parameters:
+                auth: "instance_principal"
+                region: "eu-frankfurt-1"
           EOF
 
             # Apply the InferenceService
