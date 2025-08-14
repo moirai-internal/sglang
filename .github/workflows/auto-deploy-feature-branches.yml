@@ -24,7 +24,7 @@ env:
   CUDA_SUFFIX: cu126
   ISVC_MODELS: llama-3-3-70b-instruct,llama-4-scout-17b-16e-instruct
   BUCKET_NAME: ome-benchmark-results
-  BENCHMARK_CONTAINER: ghcr.io/moirai-internal/genai-bench:0.0.2
+  BENCHMARK_CONTAINER: ghcr.io/moirai-internal/genai-bench:0.0.1
 
 jobs:
   build-and-deploy:
@@ -212,7 +212,7 @@ jobs:
               image: ${BENCHMARK_CONTAINER}
             endpoint:
               inferenceService:
-                name: $MODEL_NAME
+                name: benchmark-$MODEL_NAME
                 namespace: $NAMESPACE
             task: text-to-text
             trafficScenarios:
