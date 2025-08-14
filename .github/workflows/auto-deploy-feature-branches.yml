@@ -24,7 +24,7 @@ env:
   CUDA_SUFFIX: cu126
   ISVC_MODELS: llama-3-3-70b-instruct,llama-4-scout-17b-16e-instruct
   BUCKET_NAME: ome-benchmark-results
-  BENCHMARK_CONTAINER: ghcr.io/moirai-internal/genai-bench:v0.0.2
+  BENCHMARK_CONTAINER: fra.ocir.io/idqj093njucb/genai-bench:0.1.132  # ghcr.io/moirai-internal/genai-bench:v0.0.2
 
 jobs:
   build-and-deploy:
@@ -37,24 +37,10 @@ jobs:
       id-token: write
 
     steps:
-      # - name: Delete huge unnecessary tools folder
-      #   run: rm -rf /opt/hostedtoolcache
-
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.branch_name || github.ref_name }}
-
-      # - name: Free disk space
-      #   uses: jlumbroso/free-disk-space@main
-      #   with:
-      #     tool-cache: false
-      #     docker-images: false
-      #     android: true
-      #     dotnet: true
-      #     haskell: true
-      #     large-packages: true
-      #     swap-storage: false
 
       - name: Extract version and commit info
         id: version_info
@@ -126,7 +112,7 @@ jobs:
           kubectl cluster-info --namespace ${K8S_NAMESPACE}
           kubectl get nodes
 
-      - name: Prepare model list
+      - name: Prepare model list and sanitize names
         id: models
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
@@ -136,37 +122,73 @@ jobs:
             MODELS=${ISVC_MODELS}
           fi
 
-          # Convert comma-separated string to array and output as JSON
+          # Helper functions for name sanitization
+          sanitize_model_name() {
+            echo "$1" | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]'
+          }
+
+          sanitize_namespace() {
+            local namespace="$1"
+            namespace=$(echo "$namespace" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-zA-Z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
+            echo "$namespace" | cut -c1-63 | sed 's/-$//'
+          }
+
+          create_runtime_name() {
+            local model_name="$1"
+            local runtime_name="srt-$model_name"
+            runtime_name=$(echo "$runtime_name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-zA-Z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
+            echo "$runtime_name" | cut -c1-63 | sed 's/-$//'
+          }
+
+          # Process each model and create comprehensive JSON with all sanitized names
           IFS=',' read -ra MODEL_ARRAY <<< "$MODELS"
-          MODELS_JSON=$(printf '%s\n' "${MODEL_ARRAY[@]}" | jq -R . | jq -s . | tr -d '\n')
-          echo "models_json=$MODELS_JSON" >> $GITHUB_OUTPUT
+          MODELS_WITH_NAMES="[]"
+
+          for model in "${MODEL_ARRAY[@]}"; do
+            MODEL_NAME=$(sanitize_model_name "$model")
+            NAMESPACE=$(sanitize_namespace "${K8S_NAMESPACE}")
+            RUNTIME_NAME=$(create_runtime_name "$MODEL_NAME")
+
+            # Create JSON object for this model
+            MODEL_OBJECT=$(jq -n \
+              --arg model "$model" \
+              --arg model_name "$MODEL_NAME" \
+              --arg namespace "$NAMESPACE" \
+              --arg runtime_name "$RUNTIME_NAME" \
+              '{
+                original: $model,
+                model_name: $model_name,
+                namespace: $namespace,
+                runtime_name: $runtime_name
+              }')
+
+            # Add to array
+            MODELS_WITH_NAMES=$(echo "$MODELS_WITH_NAMES" | jq --argjson obj "$MODEL_OBJECT" '. += [$obj]')
+          done
+
+          # Output the comprehensive model metadata
+          echo "models_metadata=$(echo "$MODELS_WITH_NAMES" | tr -d '\n')" >> $GITHUB_OUTPUT
+
           echo "Models to deploy: $MODELS"
-          echo "Models JSON: $MODELS_JSON"
+          echo "Models with sanitized names:"
+          echo "$MODELS_WITH_NAMES" | jq .
 
       - name: Deploy to Kubernetes
         run: |
-          MODELS_JSON='${{ steps.models.outputs.models_json }}'
+          MODELS_METADATA='${{ steps.models.outputs.models_metadata }}'
           IMAGE="${{ steps.version_info.outputs.image_name }}:${{ steps.version_info.outputs.full_tag }}"
           BRANCH_NAME="${{ steps.version_info.outputs.branch_name }}"
           VERSION="${{ steps.version_info.outputs.version }}"
 
-          # Deploy each model sequentially
-          echo "$MODELS_JSON" | jq -r '.[]' | while read -r model; do
-            echo "Deploying model: $model"
+          # Deploy each model sequentially using pre-computed names
+          echo "$MODELS_METADATA" | jq -c '.[]' | while read -r model_info; do
+            # Extract all names from JSON
+            MODEL=$(echo "$model_info" | jq -r '.original')
+            MODEL_NAME=$(echo "$model_info" | jq -r '.model_name')
+            NAMESPACE=$(echo "$model_info" | jq -r '.namespace')
+            RUNTIME_NAME=$(echo "$model_info" | jq -r '.runtime_name')
 
-            # Sanitize model name for k8s resource names
-            MODEL_NAME=$(echo "$model" | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
-            # Create namespace name following the pattern from example
-            NAMESPACE=${K8S_NAMESPACE}
-            NAMESPACE=$(echo "$NAMESPACE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-zA-Z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
-            # Ensure namespace name is valid (max 63 chars, no leading/trailing hyphens)
-            NAMESPACE=$(echo "$NAMESPACE" | cut -c1-63 | sed 's/-$//')
-
-            # Create runtime name
-            RUNTIME_NAME="srt-$MODEL_NAME"
-            RUNTIME_NAME=$(echo "$RUNTIME_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-zA-Z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
-            RUNTIME_NAME=$(echo "$RUNTIME_NAME" | cut -c1-63 | sed 's/-$//')
-
+            echo "Deploying model: $MODEL"
             echo "Namespace: $NAMESPACE"
             echo "Runtime: $RUNTIME_NAME"
 
@@ -184,7 +206,7 @@ jobs:
               sglang.model: "$MODEL_NAME"
             annotations:
               sglang.image: "$IMAGE"
-              sglang.model-path: "$model"
+              sglang.model-path: "$MODEL"
               sglang.deployed-by: "github-actions"
               sglang.deployment-time: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           spec:
@@ -256,13 +278,13 @@ jobs:
             done
 
             if [ "$READY" = "true" ]; then
-              echo "✅ Successfully deployed InferenceService for model: $model"
+              echo "✅ Successfully deployed InferenceService for model: $MODEL"
               echo "   Namespace: $NAMESPACE"
               echo "   InferenceService: $MODEL_NAME"
               echo "   Runtime: $RUNTIME_NAME"
 
               # Deploy benchmark job now that InferenceService is ready
-              echo "🏃 Starting benchmark job for model: $model"
+              echo "🏃 Starting benchmark job for model: $MODEL"
               kubectl apply -f benchmark-$MODEL_NAME.yaml
 
               # Wait for benchmark job to complete (with timeout)
@@ -282,7 +304,7 @@ jobs:
                     BENCHMARK_SUCCESS=true
                     break
                   elif [ "$BENCHMARK_STATUS" = "Failed" ]; then
-                    echo "❌ Benchmark job failed for model: $model"
+                    echo "❌ Benchmark job failed for model: $MODEL"
                     break
                   fi
                   echo "BenchmarkJob status: $BENCHMARK_STATUS (waiting...)"
@@ -295,10 +317,10 @@ jobs:
               done
 
               if [ "$BENCHMARK_SUCCESS" = "true" ]; then
-                echo "✅ Successfully completed benchmark for model: $model"
+                echo "✅ Successfully completed benchmark for model: $MODEL"
                 echo "   Benchmark results should be available at: oci://n/${REGISTRY_NAMESPACE}/b/${BUCKET_NAME}/o/${CONTAINER_NAME}/${{ steps.version_info.outputs.full_tag }}/$MODEL_NAME"
               else
-                echo "❌ Failed to complete benchmark or timeout for model: $model"
+                echo "❌ Failed to complete benchmark or timeout for model: $MODEL"
                 echo "Checking BenchmarkJob status..."
                 kubectl get benchmarkjob benchmark-$MODEL_NAME -n $NAMESPACE -o yaml || echo "BenchmarkJob not found"
                 echo "Checking benchmark job events..."
@@ -306,11 +328,11 @@ jobs:
               fi
 
               # Clean up benchmark job and inference service
-              echo "🧹 Cleaning up resources for model: $model"
+              echo "🧹 Cleaning up resources for model: $MODEL"
               kubectl delete -f benchmark-$MODEL_NAME.yaml || echo "Failed to delete benchmark job"
 
             else
-              echo "❌ Failed to deploy or timeout waiting for InferenceService: $model"
+              echo "❌ Failed to deploy or timeout waiting for InferenceService: $MODEL"
               echo "Checking InferenceService status..."
               kubectl get inferenceservice $MODEL_NAME -n $NAMESPACE -o yaml || echo "InferenceService not found"
               echo "Checking events in namespace..."
@@ -333,22 +355,17 @@ jobs:
         run: |
           echo "🧹 Cleaning up resources after workflow failure..."
 
-          # Get models list for cleanup
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            MODELS="${{ github.event.inputs.models }}"
-          else
-            MODELS=${ISVC_MODELS}
-          fi
+          # Use the same model names that were prepared earlier
+          MODELS_METADATA='${{ steps.models.outputs.models_metadata }}'
 
-          # Clean up any remaining resources
-          IFS=',' read -ra MODEL_ARRAY <<< "$MODELS"
-          for model in "${MODEL_ARRAY[@]}"; do
-            MODEL_NAME=$(echo "$model" | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
-            NAMESPACE=${K8S_NAMESPACE}
-            NAMESPACE=$(echo "$NAMESPACE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-zA-Z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
-            NAMESPACE=$(echo "$NAMESPACE" | cut -c1-63 | sed 's/-$//')
+          # Clean up any remaining resources using pre-computed names
+          echo "$MODELS_METADATA" | jq -c '.[]' | while read -r model_info; do
+            # Extract all names from JSON
+            MODEL=$(echo "$model_info" | jq -r '.original')
+            MODEL_NAME=$(echo "$model_info" | jq -r '.model_name')
+            NAMESPACE=$(echo "$model_info" | jq -r '.namespace')
 
-            echo "Cleaning up resources for model: $model"
+            echo "Cleaning up resources for model: $MODEL"
 
             # Try to delete InferenceService
             kubectl delete inferenceservice $MODEL_NAME -n $NAMESPACE 2>/dev/null || echo "No InferenceService $MODEL_NAME to cleanup"
@@ -371,7 +388,7 @@ jobs:
 
       - name: Create deployment summary
         run: |
-          MODELS_JSON='${{ steps.models.outputs.models_json }}'
+          MODELS_METADATA='${{ steps.models.outputs.models_metadata }}'
           VERSION="${{ steps.version_info.outputs.version }}"
 
           echo "## 🚀 SGLang Deployment & Benchmark Summary" >> $GITHUB_STEP_SUMMARY
@@ -390,17 +407,14 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
 
           echo "### 📊 Benchmarked Models" >> $GITHUB_STEP_SUMMARY
-          echo "$MODELS_JSON" | jq -r '.[]' | while read -r model; do
-            MODEL_NAME=$(echo "$model" | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
-            # Use the same namespace calculation as in deployment step
-            NAMESPACE=${K8S_NAMESPACE}
-            NAMESPACE=$(echo "$NAMESPACE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-zA-Z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
-            NAMESPACE=$(echo "$NAMESPACE" | cut -c1-63 | sed 's/-$//')
-            RUNTIME_NAME="srt-$MODEL_NAME"
-            RUNTIME_NAME=$(echo "$RUNTIME_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-zA-Z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
-            RUNTIME_NAME=$(echo "$RUNTIME_NAME" | cut -c1-63 | sed 's/-$//')
+          echo "$MODELS_METADATA" | jq -c '.[]' | while read -r model_info; do
+            # Extract all names from JSON
+            MODEL=$(echo "$model_info" | jq -r '.original')
+            MODEL_NAME=$(echo "$model_info" | jq -r '.model_name')
+            NAMESPACE=$(echo "$model_info" | jq -r '.namespace')
+            RUNTIME_NAME=$(echo "$model_info" | jq -r '.runtime_name')
 
-            echo "- **Model:** \`$model\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Model:** \`$MODEL\`" >> $GITHUB_STEP_SUMMARY
             echo "  - **Namespace:** \`$NAMESPACE\`" >> $GITHUB_STEP_SUMMARY
             echo "  - **InferenceService:** \`$MODEL_NAME\`" >> $GITHUB_STEP_SUMMARY
             echo "  - **Runtime:** \`$RUNTIME_NAME\`" >> $GITHUB_STEP_SUMMARY
