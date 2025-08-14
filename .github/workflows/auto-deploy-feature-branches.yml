@@ -233,9 +233,13 @@ jobs:
             podOverride:
               image: ${BENCHMARK_CONTAINER}
             endpoint:
-              inferenceService:
-                name: $MODEL_NAME
-                namespace: $NAMESPACE
+              # inferenceService:
+              #   name: $MODEL_NAME
+              #   namespace: $NAMESPACE
+              endpoint:
+                url: http://$MODEL_NAME-engine.$NAMESPACE.svc.cluster.local:8080
+                apiFormat: openai
+                modelName: $MODEL_NAME
             task: text-to-text
             numConcurrency:
               - 1
