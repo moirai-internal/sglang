@@ -205,14 +205,14 @@ jobs:
           apiVersion: ome.io/v1beta1
           kind: BenchmarkJob
           metadata:
-            name: $MODEL_NAME
+            name: benchmark-$MODEL_NAME
             namespace: $NAMESPACE
           spec:
             podOverride:
               image: ${BENCHMARK_CONTAINER}
             endpoint:
               inferenceService:
-                name: benchmark-$MODEL_NAME
+                name: $MODEL_NAME
                 namespace: $NAMESPACE
             task: text-to-text
             trafficScenarios:
@@ -272,7 +272,7 @@ jobs:
               kubectl apply -f benchmark-$MODEL_NAME.yaml
 
               # Wait for benchmark job to complete (with timeout)
-              echo "Waiting for BenchmarkJob $MODEL_NAME to complete in namespace $NAMESPACE..."
+              echo "Waiting for BenchmarkJob benchmark-$MODEL_NAME to complete in namespace $NAMESPACE..."
 
               BENCHMARK_TIMEOUT=18000  # 5 hours
               BENCHMARK_ELAPSED=0
@@ -280,16 +280,16 @@ jobs:
 
               while [ $BENCHMARK_ELAPSED -lt $BENCHMARK_TIMEOUT ]; do
                 # Check if BenchmarkJob exists and get its status
-                if kubectl get benchmarkjob $MODEL_NAME -n $NAMESPACE >/dev/null 2>&1; then
-                  BENCHMARK_STATUS=$(kubectl get benchmarkjob $MODEL_NAME -n $NAMESPACE -o jsonpath='{.status.conditions[?(@.type=="Completed")].status}' 2>/dev/null || echo "Unknown")
-                  BENCHMARK_FAILED=$(kubectl get benchmarkjob $MODEL_NAME -n $NAMESPACE -o jsonpath='{.status.conditions[?(@.type=="Failed")].status}' 2>/dev/null || echo "False")
+                if kubectl get benchmarkjob benchmark-$MODEL_NAME -n $NAMESPACE >/dev/null 2>&1; then
+                  BENCHMARK_STATUS=$(kubectl get benchmarkjob benchmark-$MODEL_NAME -n $NAMESPACE -o jsonpath='{.status.conditions[?(@.type=="Completed")].status}' 2>/dev/null || echo "Unknown")
+                  BENCHMARK_FAILED=$(kubectl get benchmarkjob benchmark-$MODEL_NAME -n $NAMESPACE -o jsonpath='{.status.conditions[?(@.type=="Failed")].status}' 2>/dev/null || echo "False")
 
                   if [ "$BENCHMARK_STATUS" = "True" ]; then
                     BENCHMARK_SUCCESS=true
                     break
                   elif [ "$BENCHMARK_FAILED" = "True" ]; then
                     echo "❌ Benchmark job failed for model: $model"
-                    kubectl get benchmarkjob $MODEL_NAME -n $NAMESPACE -o yaml
+                    kubectl get benchmarkjob benchmark-$MODEL_NAME -n $NAMESPACE -o yaml
                     break
                   fi
                   echo "BenchmarkJob status: Completed=$BENCHMARK_STATUS, Failed=$BENCHMARK_FAILED (waiting...)"
@@ -307,7 +307,7 @@ jobs:
               else
                 echo "❌ Failed to complete benchmark or timeout for model: $model"
                 echo "Checking BenchmarkJob status..."
-                kubectl get benchmarkjob $MODEL_NAME -n $NAMESPACE -o yaml || echo "BenchmarkJob not found"
+                kubectl get benchmarkjob benchmark-$MODEL_NAME -n $NAMESPACE -o yaml || echo "BenchmarkJob not found"
                 echo "Checking benchmark job events..."
                 kubectl get events -n $NAMESPACE --sort-by=.metadata.creationTimestamp | grep -i benchmark | tail -10
               fi
