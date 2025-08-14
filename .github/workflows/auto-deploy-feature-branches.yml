@@ -134,7 +134,7 @@ jobs:
 
           # Convert comma-separated string to array and output as JSON
           IFS=',' read -ra MODEL_ARRAY <<< "$MODELS"
-          MODELS_JSON=$(printf '%s\n' "${MODEL_ARRAY[@]}" | jq -R . | jq -s .)
+          MODELS_JSON=$(printf '%s\n' "${MODEL_ARRAY[@]}" | jq -R . | jq -s . | tr -d '\n')
           echo "models_json=$MODELS_JSON" >> $GITHUB_OUTPUT
           echo "Models to deploy: $MODELS"
           echo "Models JSON: $MODELS_JSON"
