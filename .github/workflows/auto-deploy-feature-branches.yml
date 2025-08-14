@@ -226,10 +226,6 @@ jobs:
               - 128
             maxTimePerIteration: 15
             maxRequestsPerIteration: 1000
-            serviceMetadata:
-              engine: "SGLang"
-              version: ${{ steps.version_info.outputs.full_tag }}
-              gpuType: "H100"
             outputLocation:
               storageUri: "oci://n/${REGISTRY_NAMESPACE}/b/${BUCKET_NAME}/o/${CONTAINER_NAME}/${{ steps.version_info.outputs.full_tag }}/$MODEL_NAME"
               parameters:
