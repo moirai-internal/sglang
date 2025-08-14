@@ -226,11 +226,11 @@ jobs:
               - 128
             maxTimePerIteration: 15
             maxRequestsPerIteration: 1000
-            outputLocation:
-              storageUri: "oci://n/${REGISTRY_NAMESPACE}/b/${BUCKET_NAME}/o/${CONTAINER_NAME}/${{ steps.version_info.outputs.full_tag }}/$MODEL_NAME"
-              parameters:
-                auth: "instance_principal"
-                region: "eu-frankfurt-1"
+            # outputLocation:
+            #   storageUri: "oci://n/${REGISTRY_NAMESPACE}/b/${BUCKET_NAME}/o/${CONTAINER_NAME}/${{ steps.version_info.outputs.full_tag }}/$MODEL_NAME"
+            #   parameters:
+            #     auth: "instance_principal"
+            #     region: "eu-frankfurt-1"
           EOF
 
             # Apply the InferenceService
@@ -281,8 +281,8 @@ jobs:
               while [ $BENCHMARK_ELAPSED -lt $BENCHMARK_TIMEOUT ]; do
                 # Check if BenchmarkJob exists and get its status
                 if kubectl get benchmarkjob benchmark-$MODEL_NAME -n $NAMESPACE >/dev/null 2>&1; then
-                  # Get the overall status/phase of the benchmark job
-                  BENCHMARK_STATUS=$(kubectl get benchmarkjob benchmark-$MODEL_NAME -n $NAMESPACE -o jsonpath='{.status.phase}' 2>/dev/null || echo "Running")
+                  # Get the overall status/state of the benchmark job
+                  BENCHMARK_STATUS=$(kubectl get benchmarkjob benchmark-$MODEL_NAME -n $NAMESPACE -o jsonpath='{.status.state}' 2>/dev/null || echo "Running")
 
                   if [ "$BENCHMARK_STATUS" = "Succeeded" ] || [ "$BENCHMARK_STATUS" = "Completed" ]; then
                     BENCHMARK_SUCCESS=true
