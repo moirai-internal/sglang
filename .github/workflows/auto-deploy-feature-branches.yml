@@ -281,18 +281,17 @@ jobs:
               while [ $BENCHMARK_ELAPSED -lt $BENCHMARK_TIMEOUT ]; do
                 # Check if BenchmarkJob exists and get its status
                 if kubectl get benchmarkjob benchmark-$MODEL_NAME -n $NAMESPACE >/dev/null 2>&1; then
-                  BENCHMARK_STATUS=$(kubectl get benchmarkjob benchmark-$MODEL_NAME -n $NAMESPACE -o jsonpath='{.status.conditions[?(@.type=="Completed")].status}' 2>/dev/null || echo "Unknown")
-                  BENCHMARK_FAILED=$(kubectl get benchmarkjob benchmark-$MODEL_NAME -n $NAMESPACE -o jsonpath='{.status.conditions[?(@.type=="Failed")].status}' 2>/dev/null || echo "False")
+                  # Get the overall status/phase of the benchmark job
+                  BENCHMARK_STATUS=$(kubectl get benchmarkjob benchmark-$MODEL_NAME -n $NAMESPACE -o jsonpath='{.status.phase}' 2>/dev/null || echo "Running")
 
-                  if [ "$BENCHMARK_STATUS" = "True" ]; then
+                  if [ "$BENCHMARK_STATUS" = "Succeeded" ] || [ "$BENCHMARK_STATUS" = "Completed" ]; then
                     BENCHMARK_SUCCESS=true
                     break
-                  elif [ "$BENCHMARK_FAILED" = "True" ]; then
+                  elif [ "$BENCHMARK_STATUS" = "Failed" ]; then
                     echo "❌ Benchmark job failed for model: $model"
-                    kubectl get benchmarkjob benchmark-$MODEL_NAME -n $NAMESPACE -o yaml
                     break
                   fi
-                  echo "BenchmarkJob status: Completed=$BENCHMARK_STATUS, Failed=$BENCHMARK_FAILED (waiting...)"
+                  echo "BenchmarkJob status: $BENCHMARK_STATUS (waiting...)"
                 else
                   echo "BenchmarkJob not found yet (waiting...)"
                 fi
