@@ -2,9 +2,8 @@ name: Build and Deploy Feature Branches
 
 on:
   pull_request:
-  # create:
-  #   branches:
-  #     - "features-based-on-v*"
+    branches:
+      - "features-based-on-v*"
   workflow_dispatch:
     inputs:
       branch_name:
@@ -23,6 +22,9 @@ env:
   K8S_NAMESPACE: github-actions
   CONTAINER_NAME: official-sgl
   CUDA_SUFFIX: cu126
+  ISVC_MODELS: llama-3-3-70b-instruct,llama-4-scout-17b-16e-instruct
+  BUCKET_NAME: ome-benchmark-results
+  BENCHMARK_CONTAINER: ghcr.io/moirai-internal/genai-bench:0.0.2
 
 jobs:
   build-and-deploy:
@@ -131,7 +133,7 @@ jobs:
             MODELS="${{ github.event.inputs.models }}"
           else
             # Default models for auto-deployment
-            MODELS="llama-3-3-70b-instruct,llama-4-scout-17b-16e-instruct"
+            MODELS=${ISVC_MODELS}
           fi
 
           # Convert comma-separated string to array and output as JSON
@@ -198,6 +200,43 @@ jobs:
               name: $RUNTIME_NAME
           EOF
 
+            # create benchmark job manifest
+            cat <<EOF > benchmark-$MODEL_NAME.yaml
+          apiVersion: ome.io/v1beta1
+          kind: BenchmarkJob
+          metadata:
+            name: $MODEL_NAME
+            namespace: $NAMESPACE
+          spec:
+            podOverride:
+              image: ${BENCHMARK_CONTAINER}
+            endpoint:
+              inferenceService:
+                name: $MODEL_NAME
+                namespace: $NAMESPACE
+            task: text-to-text
+            trafficScenarios:
+              - "N(480,240)/(300,150)"
+              - "D(100,100)"
+              - "D(100,1000)"
+              - "D(2000,200)"
+              - "D(7800,200)"
+            numConcurrency:
+              - 1
+              - 128
+            maxTimePerIteration: 15
+            maxRequestsPerIteration: 1000
+            serviceMetadata:
+              engine: "SGLang"
+              version: ${{ steps.version_info.outputs.full_tag }}
+              gpuType: "H100"
+            outputLocation:
+              storageUri: "oci://n/${REGISTRY_NAMESPACE}/b/${BUCKET_NAME}/o/${CONTAINER_NAME}/${{ steps.version_info.outputs.full_tag }}/$MODEL_NAME"
+              parameters:
+                auth: "instance_principal"
+                region: "eu-frankfurt-1"
+          EOF
+
             # Apply the InferenceService
             kubectl apply -f isvc-$MODEL_NAME.yaml
 
@@ -231,6 +270,56 @@ jobs:
               echo "   Namespace: $NAMESPACE"
               echo "   InferenceService: $MODEL_NAME"
               echo "   Runtime: $RUNTIME_NAME"
+
+              # Deploy benchmark job now that InferenceService is ready
+              echo "🏃 Starting benchmark job for model: $model"
+              kubectl apply -f benchmark-$MODEL_NAME.yaml
+
+              # Wait for benchmark job to complete (with timeout)
+              echo "Waiting for BenchmarkJob $MODEL_NAME to complete in namespace $NAMESPACE..."
+
+              BENCHMARK_TIMEOUT=18000  # 5 hours
+              BENCHMARK_ELAPSED=0
+              BENCHMARK_SUCCESS=false
+
+              while [ $BENCHMARK_ELAPSED -lt $BENCHMARK_TIMEOUT ]; do
+                # Check if BenchmarkJob exists and get its status
+                if kubectl get benchmarkjob $MODEL_NAME -n $NAMESPACE >/dev/null 2>&1; then
+                  BENCHMARK_STATUS=$(kubectl get benchmarkjob $MODEL_NAME -n $NAMESPACE -o jsonpath='{.status.conditions[?(@.type=="Completed")].status}' 2>/dev/null || echo "Unknown")
+                  BENCHMARK_FAILED=$(kubectl get benchmarkjob $MODEL_NAME -n $NAMESPACE -o jsonpath='{.status.conditions[?(@.type=="Failed")].status}' 2>/dev/null || echo "False")
+
+                  if [ "$BENCHMARK_STATUS" = "True" ]; then
+                    BENCHMARK_SUCCESS=true
+                    break
+                  elif [ "$BENCHMARK_FAILED" = "True" ]; then
+                    echo "❌ Benchmark job failed for model: $model"
+                    kubectl get benchmarkjob $MODEL_NAME -n $NAMESPACE -o yaml
+                    break
+                  fi
+                  echo "BenchmarkJob status: Completed=$BENCHMARK_STATUS, Failed=$BENCHMARK_FAILED (waiting...)"
+                else
+                  echo "BenchmarkJob not found yet (waiting...)"
+                fi
+
+                sleep 30
+                BENCHMARK_ELAPSED=$((BENCHMARK_ELAPSED + 30))
+              done
+
+              if [ "$BENCHMARK_SUCCESS" = "true" ]; then
+                echo "✅ Successfully completed benchmark for model: $model"
+                echo "   Benchmark results should be available at: oci://n/${REGISTRY_NAMESPACE}/b/${BUCKET_NAME}/o/${CONTAINER_NAME}/${{ steps.version_info.outputs.full_tag }}/$MODEL_NAME"
+              else
+                echo "❌ Failed to complete benchmark or timeout for model: $model"
+                echo "Checking BenchmarkJob status..."
+                kubectl get benchmarkjob $MODEL_NAME -n $NAMESPACE -o yaml || echo "BenchmarkJob not found"
+                echo "Checking benchmark job events..."
+                kubectl get events -n $NAMESPACE --sort-by=.metadata.creationTimestamp | grep -i benchmark | tail -10
+              fi
+
+              # Clean up benchmark job and inference service
+              echo "🧹 Cleaning up resources for model: $model"
+              kubectl delete -f benchmark-$MODEL_NAME.yaml || echo "Failed to delete benchmark job"
+
             else
               echo "❌ Failed to deploy or timeout waiting for InferenceService: $model"
               echo "Checking InferenceService status..."
@@ -240,56 +329,23 @@ jobs:
               # Continue with next model instead of failing the entire workflow
             fi
 
-            # Clean up manifest file
-            kubectl delete -f isvc-$MODEL_NAME.yaml
+            # Clean up inference service
+            kubectl delete -f isvc-$MODEL_NAME.yaml || echo "Failed to delete inference service"
+
+            # Clean up manifest files
             rm -f isvc-$MODEL_NAME.yaml
+            rm -f benchmark-$MODEL_NAME.yaml
 
             echo "---"
           done
 
-      - name: Get deployment status
-        run: |
-          MODELS_JSON='${{ steps.models.outputs.models_json }}'
-          VERSION="${{ steps.version_info.outputs.version }}"
-
-          echo "=== Deployment Summary ==="
-          echo "Version: $VERSION"
-          echo "Image: ${{ steps.version_info.outputs.image_name }}:${{ steps.version_info.outputs.full_tag }}"
-          echo ""
-
-          # Check status for each deployed model
-          echo "$MODELS_JSON" | jq -r '.[]' | while read -r model; do
-            MODEL_NAME=$(echo "$model" | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
-            NAMESPACE="$MODEL_NAME-$VERSION"
-            NAMESPACE=$(echo "$NAMESPACE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-zA-Z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
-            NAMESPACE=$(echo "$NAMESPACE" | cut -c1-63 | sed 's/-$//')
-
-            echo "=== Model: $model ==="
-            echo "Namespace: $NAMESPACE"
-
-            if kubectl get namespace $NAMESPACE >/dev/null 2>&1; then
-              echo "InferenceServices:"
-              kubectl get inferenceservice -n $NAMESPACE -o wide 2>/dev/null || echo "No InferenceServices found"
-              echo ""
-
-              echo "Pods:"
-              kubectl get pods -n $NAMESPACE -o wide 2>/dev/null || echo "No pods found"
-              echo ""
-
-              echo "Recent Events:"
-              kubectl get events -n $NAMESPACE --sort-by=.metadata.creationTimestamp 2>/dev/null | tail -5 || echo "No events found"
-            else
-              echo "Namespace $NAMESPACE not found"
-            fi
-            echo "---"
-          done
 
       - name: Create deployment summary
         run: |
           MODELS_JSON='${{ steps.models.outputs.models_json }}'
           VERSION="${{ steps.version_info.outputs.version }}"
 
-          echo "## 🚀 InferenceService Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## 🚀 SGLang Deployment & Benchmark Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Branch:** \`${{ steps.version_info.outputs.branch_name }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${{ steps.version_info.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
@@ -297,13 +353,21 @@ jobs:
           echo "**Docker Image:** \`${{ steps.version_info.outputs.image_name }}:${{ steps.version_info.outputs.full_tag }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          echo "### Deployed Models & Namespaces" >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 Deployment Overview" >> $GITHUB_STEP_SUMMARY
+          echo "This workflow deployed and benchmarked each model sequentially:" >> $GITHUB_STEP_SUMMARY
+          echo "1. **InferenceService Deployment** - Deploy SGLang runtime with the model" >> $GITHUB_STEP_SUMMARY
+          echo "2. **Benchmark Execution** - Run performance benchmarks against the deployed service" >> $GITHUB_STEP_SUMMARY
+          echo "3. **Resource Cleanup** - Clean up both InferenceService and BenchmarkJob after completion" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### 📊 Benchmarked Models" >> $GITHUB_STEP_SUMMARY
           echo "$MODELS_JSON" | jq -r '.[]' | while read -r model; do
             MODEL_NAME=$(echo "$model" | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
-            NAMESPACE="$MODEL_NAME-$VERSION"
+            # Use the same namespace calculation as in deployment step
+            NAMESPACE=${K8S_NAMESPACE}
             NAMESPACE=$(echo "$NAMESPACE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-zA-Z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
             NAMESPACE=$(echo "$NAMESPACE" | cut -c1-63 | sed 's/-$//')
-            RUNTIME_NAME="srt-$MODEL_NAME-$VERSION"
+            RUNTIME_NAME="srt-$MODEL_NAME"
             RUNTIME_NAME=$(echo "$RUNTIME_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-zA-Z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
             RUNTIME_NAME=$(echo "$RUNTIME_NAME" | cut -c1-63 | sed 's/-$//')
 
@@ -311,17 +375,20 @@ jobs:
             echo "  - **Namespace:** \`$NAMESPACE\`" >> $GITHUB_STEP_SUMMARY
             echo "  - **InferenceService:** \`$MODEL_NAME\`" >> $GITHUB_STEP_SUMMARY
             echo "  - **Runtime:** \`$RUNTIME_NAME\`" >> $GITHUB_STEP_SUMMARY
+            echo "  - **Benchmark Results:** \`oci://n/${REGISTRY_NAMESPACE}/b/${BUCKET_NAME}/o/${CONTAINER_NAME}/${{ steps.version_info.outputs.full_tag }}/$MODEL_NAME\`" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
           done
 
-          echo "### Commands to Access" >> $GITHUB_STEP_SUMMARY
-          echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "# List all InferenceServices across namespaces" >> $GITHUB_STEP_SUMMARY
-          echo "kubectl get inferenceservice --all-namespaces -l sglang.version=$VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "### ⚙️ Benchmark Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- **Engine:** SGLang" >> $GITHUB_STEP_SUMMARY
+          echo "- **GPU Type:** H100" >> $GITHUB_STEP_SUMMARY
+          echo "- **Task:** text-to-text" >> $GITHUB_STEP_SUMMARY
+          echo "- **Benchmark Image:** \`${BENCHMARK_CONTAINER}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "# Check specific InferenceService status (replace <namespace> and <name>)" >> $GITHUB_STEP_SUMMARY
-          echo "kubectl get inferenceservice <name> -n <namespace> -o yaml" >> $GITHUB_STEP_SUMMARY
+
+          echo "### 📈 Results Location" >> $GITHUB_STEP_SUMMARY
+          echo "All benchmark results are stored in OCI Object Storage:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Bucket:** \`${BUCKET_NAME}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Path Pattern:** \`${CONTAINER_NAME}/${{ steps.version_info.outputs.full_tag }}/{model_name}/\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "# View pods for a specific model (replace <namespace>)" >> $GITHUB_STEP_SUMMARY
-          echo "kubectl get pods -n <namespace>" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "_Note: All resources (InferenceServices and BenchmarkJobs) were cleaned up after completion._" >> $GITHUB_STEP_SUMMARY
