@@ -174,11 +174,15 @@ jobs:
           echo "$MODELS_WITH_NAMES" | jq .
 
       - name: Deploy to Kubernetes
+        id: deployment
         run: |
           MODELS_METADATA='${{ steps.models.outputs.models_metadata }}'
           IMAGE="${{ steps.version_info.outputs.image_name }}:${{ steps.version_info.outputs.full_tag }}"
           BRANCH_NAME="${{ steps.version_info.outputs.branch_name }}"
           VERSION="${{ steps.version_info.outputs.version }}"
+
+          # Initialize status tracking
+          DEPLOYMENT_STATUS="[]"
 
           # Deploy each model sequentially using pre-computed names
           echo "$MODELS_METADATA" | jq -c '.[]' | while read -r model_info; do
@@ -287,6 +291,9 @@ jobs:
               echo "   InferenceService: $MODEL_NAME"
               echo "   Runtime: $RUNTIME_NAME"
 
+              # Track InferenceService success
+              ISVC_STATUS="SUCCESS"
+
               # Deploy benchmark job now that InferenceService is ready
               echo "🏃 Starting benchmark job for model: $MODEL"
               kubectl apply -f benchmark-$MODEL_NAME.yaml
@@ -323,6 +330,7 @@ jobs:
               if [ "$BENCHMARK_SUCCESS" = "true" ]; then
                 echo "✅ Successfully completed benchmark for model: $MODEL"
                 echo "   Benchmark results should be available at: oci://n/${REGISTRY_NAMESPACE}/b/${BUCKET_NAME}/o/${CONTAINER_NAME}/${{ steps.version_info.outputs.full_tag }}/$MODEL_NAME"
+                BENCHMARK_STATUS="SUCCESS"
               else
                 echo "❌ Failed to complete benchmark or timeout for model: $MODEL"
                 echo "Checking BenchmarkJob status..."
@@ -340,6 +348,7 @@ jobs:
                 else
                   echo "No benchmark pod found for job benchmark-$MODEL_NAME"
                 fi
+                BENCHMARK_STATUS="FAILED"
               fi
 
               # Clean up benchmark job and inference service
@@ -353,10 +362,32 @@ jobs:
               echo "Checking events in namespace..."
               kubectl get events -n $NAMESPACE --sort-by=.metadata.creationTimestamp | tail -10
               # Continue with next model instead of failing the entire workflow
+              ISVC_STATUS="FAILED"
+              BENCHMARK_STATUS="SKIPPED"
             fi
 
             # Clean up inference service
             kubectl delete -f isvc-$MODEL_NAME.yaml || echo "Failed to delete inference service"
+
+            # Add status to tracking JSON
+            STATUS_ENTRY=$(jq -n \
+              --arg model "$MODEL" \
+              --arg model_name "$MODEL_NAME" \
+              --arg namespace "$NAMESPACE" \
+              --arg runtime_name "$RUNTIME_NAME" \
+              --arg isvc_status "${ISVC_STATUS:-UNKNOWN}" \
+              --arg benchmark_status "${BENCHMARK_STATUS:-UNKNOWN}" \
+              '{
+                model: $model,
+                model_name: $model_name,
+                namespace: $namespace,
+                runtime_name: $runtime_name,
+                isvc_status: $isvc_status,
+                benchmark_status: $benchmark_status
+              }')
+
+            # Update the deployment status JSON
+            DEPLOYMENT_STATUS=$(echo "$DEPLOYMENT_STATUS" | jq --argjson entry "$STATUS_ENTRY" '. += [$entry]')
 
             # Clean up manifest files
             rm -f isvc-$MODEL_NAME.yaml
@@ -364,6 +395,11 @@ jobs:
 
             echo "---"
           done
+
+          # Output the deployment status for use in summary
+          echo "deployment_status=$(echo "$DEPLOYMENT_STATUS" | tr -d '\n')" >> $GITHUB_OUTPUT
+          echo "Deployment status saved:"
+          echo "$DEPLOYMENT_STATUS" | jq .
 
       - name: Cleanup on failure or cancellation
         if: failure() || cancelled()
@@ -403,8 +439,8 @@ jobs:
 
       - name: Create deployment summary
         run: |
-          MODELS_METADATA='${{ steps.models.outputs.models_metadata }}'
           VERSION="${{ steps.version_info.outputs.version }}"
+          DEPLOYMENT_STATUS='${{ steps.deployment.outputs.deployment_status }}'
 
           echo "## 🚀 SGLang Deployment & Benchmark Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -421,21 +457,68 @@ jobs:
           echo "3. **Resource Cleanup** - Clean up both InferenceService and BenchmarkJob after completion" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          echo "### 📊 Benchmarked Models" >> $GITHUB_STEP_SUMMARY
-          echo "$MODELS_METADATA" | jq -c '.[]' | while read -r model_info; do
-            # Extract all names from JSON
-            MODEL=$(echo "$model_info" | jq -r '.original')
-            MODEL_NAME=$(echo "$model_info" | jq -r '.model_name')
-            NAMESPACE=$(echo "$model_info" | jq -r '.namespace')
-            RUNTIME_NAME=$(echo "$model_info" | jq -r '.runtime_name')
+          # Read deployment status from step output
+          if [ -n "$DEPLOYMENT_STATUS" ] && [ "$DEPLOYMENT_STATUS" != "[]" ]; then
+            echo "### 📊 Model Deployment Results" >> $GITHUB_STEP_SUMMARY
 
-            echo "- **Model:** \`$MODEL\`" >> $GITHUB_STEP_SUMMARY
-            echo "  - **Namespace:** \`$NAMESPACE\`" >> $GITHUB_STEP_SUMMARY
-            echo "  - **InferenceService:** \`$MODEL_NAME\`" >> $GITHUB_STEP_SUMMARY
-            echo "  - **Runtime:** \`$RUNTIME_NAME\`" >> $GITHUB_STEP_SUMMARY
-            echo "  - **Benchmark Results:** \`oci://n/${REGISTRY_NAMESPACE}/b/${BUCKET_NAME}/o/${CONTAINER_NAME}/${{ steps.version_info.outputs.full_tag }}/$MODEL_NAME\`" >> $GITHUB_STEP_SUMMARY
+            # Count overall statistics
+            TOTAL_MODELS=$(echo "$DEPLOYMENT_STATUS" | jq 'length')
+            SUCCESSFUL_ISVC=$(echo "$DEPLOYMENT_STATUS" | jq '[.[] | select(.isvc_status == "SUCCESS")] | length')
+            SUCCESSFUL_BENCHMARKS=$(echo "$DEPLOYMENT_STATUS" | jq '[.[] | select(.benchmark_status == "SUCCESS")] | length')
+            FAILED_ISVC=$(echo "$DEPLOYMENT_STATUS" | jq '[.[] | select(.isvc_status == "FAILED")] | length')
+            FAILED_BENCHMARKS=$(echo "$DEPLOYMENT_STATUS" | jq '[.[] | select(.benchmark_status == "FAILED")] | length')
+
+            echo "**Overall Status:**" >> $GITHUB_STEP_SUMMARY
+            echo "- 📈 Total Models: $TOTAL_MODELS" >> $GITHUB_STEP_SUMMARY
+            echo "- ✅ InferenceServices Deployed: $SUCCESSFUL_ISVC/$TOTAL_MODELS" >> $GITHUB_STEP_SUMMARY
+            echo "- 🏃 Benchmarks Completed: $SUCCESSFUL_BENCHMARKS/$TOTAL_MODELS" >> $GITHUB_STEP_SUMMARY
+            if [ "$FAILED_ISVC" -gt 0 ]; then
+              echo "- ❌ InferenceService Failures: $FAILED_ISVC" >> $GITHUB_STEP_SUMMARY
+            fi
+            if [ "$FAILED_BENCHMARKS" -gt 0 ]; then
+              echo "- ❌ Benchmark Failures: $FAILED_BENCHMARKS" >> $GITHUB_STEP_SUMMARY
+            fi
             echo "" >> $GITHUB_STEP_SUMMARY
-          done
+
+            # Individual model status
+            echo "$DEPLOYMENT_STATUS" | jq -c '.[]' | while read -r status_info; do
+              MODEL=$(echo "$status_info" | jq -r '.model')
+              MODEL_NAME=$(echo "$status_info" | jq -r '.model_name')
+              NAMESPACE=$(echo "$status_info" | jq -r '.namespace')
+              RUNTIME_NAME=$(echo "$status_info" | jq -r '.runtime_name')
+              ISVC_STATUS=$(echo "$status_info" | jq -r '.isvc_status')
+              BENCHMARK_STATUS=$(echo "$status_info" | jq -r '.benchmark_status')
+
+              # Status emojis
+              case "$ISVC_STATUS" in
+                "SUCCESS") ISVC_EMOJI="✅" ;;
+                "FAILED") ISVC_EMOJI="❌" ;;
+                *) ISVC_EMOJI="❓" ;;
+              esac
+
+              case "$BENCHMARK_STATUS" in
+                "SUCCESS") BENCHMARK_EMOJI="✅" ;;
+                "FAILED") BENCHMARK_EMOJI="❌" ;;
+                "SKIPPED") BENCHMARK_EMOJI="⏭️" ;;
+                *) BENCHMARK_EMOJI="❓" ;;
+              esac
+
+              echo "#### 🤖 $MODEL" >> $GITHUB_STEP_SUMMARY
+              echo "- **Namespace:** \`$NAMESPACE\`" >> $GITHUB_STEP_SUMMARY
+              echo "- **InferenceService:** \`$MODEL_NAME\` $ISVC_EMOJI \`$ISVC_STATUS\`" >> $GITHUB_STEP_SUMMARY
+              echo "- **Runtime:** \`$RUNTIME_NAME\`" >> $GITHUB_STEP_SUMMARY
+              echo "- **Benchmark:** $BENCHMARK_EMOJI \`$BENCHMARK_STATUS\`" >> $GITHUB_STEP_SUMMARY
+
+              if [ "$BENCHMARK_STATUS" = "SUCCESS" ]; then
+                echo "- **Results:** \`oci://n/${REGISTRY_NAMESPACE}/b/${BUCKET_NAME}/o/${CONTAINER_NAME}/${{ steps.version_info.outputs.full_tag }}/$MODEL_NAME\`" >> $GITHUB_STEP_SUMMARY
+              fi
+              echo "" >> $GITHUB_STEP_SUMMARY
+            done
+          else
+            echo "### ❗ No deployment status available" >> $GITHUB_STEP_SUMMARY
+            echo "The deployment status was not found. This may indicate the workflow was interrupted before completion." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
 
           echo "### ⚙️ Benchmark Configuration" >> $GITHUB_STEP_SUMMARY
           echo "- **Engine:** SGLang" >> $GITHUB_STEP_SUMMARY
