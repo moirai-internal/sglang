@@ -350,10 +350,10 @@ jobs:
             echo "---"
           done
 
-      - name: Cleanup on failure
-        if: failure()
+      - name: Cleanup on failure or cancellation
+        if: failure() || cancelled()
         run: |
-          echo "🧹 Cleaning up resources after workflow failure..."
+          echo "🧹 Cleaning up resources after workflow failure or cancellation..."
 
           # Use the same model names that were prepared earlier
           MODELS_METADATA='${{ steps.models.outputs.models_metadata }}'
