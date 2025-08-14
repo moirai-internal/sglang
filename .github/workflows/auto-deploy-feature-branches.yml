@@ -26,7 +26,7 @@ jobs:
   build-and-deploy:
 
     if: startsWith(github.ref_name, 'features-based-on-v') || github.event_name == 'workflow_dispatch'
-    runs-on: [moirai-h200]
+    runs-on: self-hosted
     permissions:
       contents: read
       packages: write
