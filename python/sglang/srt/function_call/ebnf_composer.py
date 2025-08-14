@@ -316,7 +316,11 @@ class EBNFComposer:
 
             combined_args = "".join(rule_parts)
             arguments_rule = args_template.format(arg_rules=combined_args)
+<<<<<<< HEAD
             arguments_rule = arguments_rule or '""'
+=======
+            arguments_rule = arguments_rule or '""'  # Fallback to empty if no args
+>>>>>>> origin/features-based-on-v0.4.10.post2
 
             # Add the function call rule and its arguments rule
             ebnf_lines.append(
