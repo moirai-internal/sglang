@@ -24,7 +24,7 @@ env:
   CUDA_SUFFIX: cu126
   ISVC_MODELS: llama-3-3-70b-instruct,llama-4-scout-17b-16e-instruct
   BUCKET_NAME: ome-benchmark-results
-  BENCHMARK_CONTAINER: phx.ocir.io/idqj093njucb/genai-bench:0.1.140  # ghcr.io/moirai-internal/genai-bench:v0.0.2
+  BENCHMARK_CONTAINER: ghcr.io/moirai-internal/genai-bench:v0.0.2
 
 jobs:
   build-and-deploy:
