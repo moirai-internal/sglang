@@ -24,7 +24,7 @@ env:
   CUDA_SUFFIX: cu126
   ISVC_MODELS: llama-3-3-70b-instruct,llama-4-scout-17b-16e-instruct
   BUCKET_NAME: ome-benchmark-results
-  BENCHMARK_CONTAINER: phx.ocir.io/idqj093njucb/genai-bench:0.1.132  # ghcr.io/moirai-internal/genai-bench:v0.0.2
+  BENCHMARK_CONTAINER: phx.ocir.io/idqj093njucb/genai-bench:0.1.140  # ghcr.io/moirai-internal/genai-bench:v0.0.2
 
 jobs:
   build-and-deploy:
@@ -329,6 +329,17 @@ jobs:
                 kubectl get benchmarkjob benchmark-$MODEL_NAME -n $NAMESPACE -o yaml || echo "BenchmarkJob not found"
                 echo "Checking benchmark job events..."
                 kubectl get events -n $NAMESPACE --sort-by=.metadata.creationTimestamp | grep -i benchmark | tail -10
+
+                # Get benchmark job pod logs for debugging
+                echo "Fetching benchmark job pod logs for debugging..."
+                BENCHMARK_POD=$(kubectl get pods -n $NAMESPACE -l job-name=benchmark-$MODEL_NAME -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+                if [ -n "$BENCHMARK_POD" ]; then
+                  echo "--- Benchmark Pod Logs ---"
+                  kubectl logs $BENCHMARK_POD -n $NAMESPACE --tail=100 || echo "Failed to get pod logs"
+                  echo "--- End of Benchmark Pod Logs ---"
+                else
+                  echo "No benchmark pod found for job benchmark-$MODEL_NAME"
+                fi
               fi
 
               # Clean up benchmark job and inference service
