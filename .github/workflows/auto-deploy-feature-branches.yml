@@ -270,6 +270,7 @@ jobs:
                 containers:
                 - name: sanity-check
                   image: ${SANITY_CHECK_CONTAINER}
+                  imagePullPolicy: Always
                   env:
                   - name: BASE_URL
                     value: "http://$MODEL_NAME-engine.$NAMESPACE.svc.cluster.local:8080"
