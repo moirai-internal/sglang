@@ -391,13 +391,12 @@ jobs:
                 # Check if Job exists and get its status
                 if kubectl get job sanity-check-$MODEL_NAME -n $NAMESPACE >/dev/null 2>&1; then
                   # Get the job completion status
-                  COMPLETED=$(kubectl get job sanity-check-$MODEL_NAME -n $NAMESPACE -o jsonpath='{.status.completionTime}' 2>/dev/null || echo "")
-                  FAILED=$(kubectl get job sanity-check-$MODEL_NAME -n $NAMESPACE -o jsonpath='{.status.failed}' 2>/dev/null || echo "0")
+                  SANITY_CHECK_STATUS=$(kubectl get job sanity-check-$MODEL_NAME -n $NAMESPACE -o jsonpath='{.status.conditions[0].type}' 2>/dev/null || echo "")
 
-                  if [ -n "$COMPLETED" ]; then
+                  if [ "$SANITY_CHECK_STATUS" = "Complete" ]; then
                     SANITY_SUCCESS=true
                     break
-                  elif [ "$FAILED" -gt "0" ]; then
+                  elif ["$SANITY_CHECK_STATUS" = "Failed" ]; then
                     echo "❌ Sanity-check job failed for model: $MODEL"
                     break
                   fi
@@ -420,18 +419,12 @@ jobs:
                 echo "Checking sanity-check job events..."
                 kubectl get events -n $NAMESPACE --sort-by=.metadata.creationTimestamp | grep -i sanity-check | tail -10
 
-                # Get sanity-check job pod logs for debugging
-                echo "Fetching sanity-check job pod logs for debugging..."
-                SANITY_POD=$(kubectl get pods -n $NAMESPACE -l job-name=sanity-check-$MODEL_NAME -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-                if [ -n "$SANITY_POD" ]; then
-                  echo "--- Sanity-check Pod Logs ---"
-                  kubectl logs $SANITY_POD -n $NAMESPACE --tail=100 || echo "Failed to get pod logs"
-                  echo "--- End of Sanity-check Pod Logs ---"
-                else
-                  echo "No sanity-check pod found for job sanity-check-$MODEL_NAME"
-                fi
                 SANITY_STATUS="FAILED"
               fi
+
+              # Get sanity-check job logs
+              echo "Fetching sanity-check job logs for debugging..."
+              kubectl logs -n $NAMESPACE jobs/sanity-check-$MODEL_NAME --tail=100 || echo "Failed to get sanity check job logs"
 
               # Clean up benchmark job, sanity-check job and inference service
               echo "🧹 Cleaning up resources for model: $MODEL"
