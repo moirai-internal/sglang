@@ -25,6 +25,7 @@ env:
   ISVC_MODELS: llama-3-3-70b-instruct,llama-4-scout-17b-16e-instruct
   BUCKET_NAME: ome-benchmark-results
   BENCHMARK_CONTAINER: ghcr.io/moirai-internal/genai-bench:v0.0.2
+  SANITY_CHECK_CONTAINER: phx.ocir.io/idqj093njucb/sanity-check:dev
 
 jobs:
   build-and-deploy:
@@ -207,11 +208,7 @@ jobs:
             namespace: $NAMESPACE
             labels:
               sglang.version: "$VERSION"
-              sglang.branch: "$(echo "$BRANCH_NAME" | sed 's/[^a-zA-Z0-9-]/-/g' | tr '[:upper:]' '[:lower:]')"
-              sglang.model: "$MODEL_NAME"
             annotations:
-              sglang.image: "$IMAGE"
-              sglang.model-path: "$MODEL"
               sglang.deployed-by: "github-actions"
               sglang.deployment-time: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           spec:
@@ -256,6 +253,32 @@ jobs:
               parameters:
                 auth: "instance_principal"
                 region: "eu-frankfurt-1"
+          EOF
+
+            # create sanity-check job manifest
+            cat <<EOF > sanity-check-$MODEL_NAME.yaml
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: sanity-check-$MODEL_NAME
+            namespace: $NAMESPACE
+            labels:
+              sglang.version: "$VERSION"
+          spec:
+            template:
+              spec:
+                containers:
+                - name: sanity-check
+                  image: ${SANITY_CHECK_CONTAINER}
+                  env:
+                  - name: BASE_URL
+                    value: "http://$MODEL_NAME-engine.$NAMESPACE.svc.cluster.local:8080"
+                  - name: VLLM_ENDPOINT
+                    value: "$MODEL_NAME-engine.$NAMESPACE.svc.cluster.local"
+                  - name: VLLM_PORT
+                    value: "8080"
+                restartPolicy: Never
+            backoffLimit: 3
           EOF
 
             # Apply the InferenceService
@@ -352,9 +375,67 @@ jobs:
                 BENCHMARK_STATUS="FAILED"
               fi
 
-              # Clean up benchmark job and inference service
+              # Deploy sanity-check job after benchmark
+              echo "🔍 Starting sanity-check job for model: $MODEL"
+              kubectl apply -f sanity-check-$MODEL_NAME.yaml
+
+              # Wait for sanity-check job to complete (with timeout)
+              echo "Waiting for Job sanity-check-$MODEL_NAME to complete in namespace $NAMESPACE..."
+
+              SANITY_TIMEOUT=3600  # 60 minutes
+              SANITY_ELAPSED=0
+              SANITY_SUCCESS=false
+
+              while [ $SANITY_ELAPSED -lt $SANITY_TIMEOUT ]; do
+                # Check if Job exists and get its status
+                if kubectl get job sanity-check-$MODEL_NAME -n $NAMESPACE >/dev/null 2>&1; then
+                  # Get the job completion status
+                  COMPLETED=$(kubectl get job sanity-check-$MODEL_NAME -n $NAMESPACE -o jsonpath='{.status.completionTime}' 2>/dev/null || echo "")
+                  FAILED=$(kubectl get job sanity-check-$MODEL_NAME -n $NAMESPACE -o jsonpath='{.status.failed}' 2>/dev/null || echo "0")
+
+                  if [ -n "$COMPLETED" ]; then
+                    SANITY_SUCCESS=true
+                    break
+                  elif [ "$FAILED" -gt "0" ]; then
+                    echo "❌ Sanity-check job failed for model: $MODEL"
+                    break
+                  fi
+                  echo "Sanity-check job still running (waiting...)"
+                else
+                  echo "Sanity-check job not found yet (waiting...)"
+                fi
+
+                sleep 30
+                SANITY_ELAPSED=$((SANITY_ELAPSED + 30))
+              done
+
+              if [ "$SANITY_SUCCESS" = "true" ]; then
+                echo "✅ Successfully completed sanity-check for model: $MODEL"
+                SANITY_STATUS="SUCCESS"
+              else
+                echo "❌ Failed to complete sanity-check or timeout for model: $MODEL"
+                echo "Checking sanity-check job status..."
+                kubectl get job sanity-check-$MODEL_NAME -n $NAMESPACE -o yaml || echo "Sanity-check job not found"
+                echo "Checking sanity-check job events..."
+                kubectl get events -n $NAMESPACE --sort-by=.metadata.creationTimestamp | grep -i sanity-check | tail -10
+
+                # Get sanity-check job pod logs for debugging
+                echo "Fetching sanity-check job pod logs for debugging..."
+                SANITY_POD=$(kubectl get pods -n $NAMESPACE -l job-name=sanity-check-$MODEL_NAME -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+                if [ -n "$SANITY_POD" ]; then
+                  echo "--- Sanity-check Pod Logs ---"
+                  kubectl logs $SANITY_POD -n $NAMESPACE --tail=100 || echo "Failed to get pod logs"
+                  echo "--- End of Sanity-check Pod Logs ---"
+                else
+                  echo "No sanity-check pod found for job sanity-check-$MODEL_NAME"
+                fi
+                SANITY_STATUS="FAILED"
+              fi
+
+              # Clean up benchmark job, sanity-check job and inference service
               echo "🧹 Cleaning up resources for model: $MODEL"
               kubectl delete -f benchmark-$MODEL_NAME.yaml || echo "Failed to delete benchmark job"
+              kubectl delete -f sanity-check-$MODEL_NAME.yaml || echo "Failed to delete sanity-check job"
 
             else
               echo "❌ Failed to deploy or timeout waiting for InferenceService: $MODEL"
@@ -365,6 +446,7 @@ jobs:
               # Continue with next model instead of failing the entire workflow
               ISVC_STATUS="FAILED"
               BENCHMARK_STATUS="SKIPPED"
+              SANITY_STATUS="SKIPPED"
             fi
 
             # Clean up inference service
@@ -378,13 +460,15 @@ jobs:
               --arg runtime_name "$RUNTIME_NAME" \
               --arg isvc_status "${ISVC_STATUS:-UNKNOWN}" \
               --arg benchmark_status "${BENCHMARK_STATUS:-UNKNOWN}" \
+              --arg sanity_status "${SANITY_STATUS:-UNKNOWN}" \
               '{
                 model: $model,
                 model_name: $model_name,
                 namespace: $namespace,
                 runtime_name: $runtime_name,
                 isvc_status: $isvc_status,
-                benchmark_status: $benchmark_status
+                benchmark_status: $benchmark_status,
+                sanity_status: $sanity_status
               }')
 
             # Update the deployment status JSON
@@ -393,6 +477,7 @@ jobs:
             # Clean up manifest files
             rm -f isvc-$MODEL_NAME.yaml
             rm -f benchmark-$MODEL_NAME.yaml
+            rm -f sanity-check-$MODEL_NAME.yaml
 
             echo "---"
           done < <(echo "$MODELS_METADATA" | jq -c '.[]')
@@ -425,8 +510,11 @@ jobs:
             # Try to delete BenchmarkJob
             kubectl delete benchmarkjob benchmark-$MODEL_NAME -n $NAMESPACE 2>/dev/null || echo "No BenchmarkJob benchmark-$MODEL_NAME to cleanup"
 
+            # Try to delete sanity-check Job
+            kubectl delete job sanity-check-$MODEL_NAME -n $NAMESPACE 2>/dev/null || echo "No sanity-check Job sanity-check-$MODEL_NAME to cleanup"
+
             # Clean up any manifest files
-            rm -f isvc-$MODEL_NAME.yaml benchmark-$MODEL_NAME.yaml
+            rm -f isvc-$MODEL_NAME.yaml benchmark-$MODEL_NAME.yaml sanity-check-$MODEL_NAME.yaml
           done
 
           echo "Cleanup completed"
@@ -452,10 +540,11 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
 
           echo "### 📋 Deployment Overview" >> $GITHUB_STEP_SUMMARY
-          echo "This workflow deployed and benchmarked each model sequentially:" >> $GITHUB_STEP_SUMMARY
+          echo "This workflow deployed and tested each model sequentially:" >> $GITHUB_STEP_SUMMARY
           echo "1. **InferenceService Deployment** - Deploy SGLang runtime with the model" >> $GITHUB_STEP_SUMMARY
           echo "2. **Benchmark Execution** - Run performance benchmarks against the deployed service" >> $GITHUB_STEP_SUMMARY
-          echo "3. **Resource Cleanup** - Clean up both InferenceService and BenchmarkJob after completion" >> $GITHUB_STEP_SUMMARY
+          echo "3. **Sanity Check** - Run sanity check validation against the deployed service" >> $GITHUB_STEP_SUMMARY
+          echo "4. **Resource Cleanup** - Clean up InferenceService, BenchmarkJob, and sanity-check Job after completion" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
           # Read deployment status from step output
@@ -466,18 +555,24 @@ jobs:
             TOTAL_MODELS=$(echo "$DEPLOYMENT_STATUS" | jq 'length')
             SUCCESSFUL_ISVC=$(echo "$DEPLOYMENT_STATUS" | jq '[.[] | select(.isvc_status == "SUCCESS")] | length')
             SUCCESSFUL_BENCHMARKS=$(echo "$DEPLOYMENT_STATUS" | jq '[.[] | select(.benchmark_status == "SUCCESS")] | length')
+            SUCCESSFUL_SANITY=$(echo "$DEPLOYMENT_STATUS" | jq '[.[] | select(.sanity_status == "SUCCESS")] | length')
             FAILED_ISVC=$(echo "$DEPLOYMENT_STATUS" | jq '[.[] | select(.isvc_status == "FAILED")] | length')
             FAILED_BENCHMARKS=$(echo "$DEPLOYMENT_STATUS" | jq '[.[] | select(.benchmark_status == "FAILED")] | length')
+            FAILED_SANITY=$(echo "$DEPLOYMENT_STATUS" | jq '[.[] | select(.sanity_status == "FAILED")] | length')
 
             echo "**Overall Status:**" >> $GITHUB_STEP_SUMMARY
             echo "- 📈 Total Models: $TOTAL_MODELS" >> $GITHUB_STEP_SUMMARY
             echo "- ✅ InferenceServices Deployed: $SUCCESSFUL_ISVC/$TOTAL_MODELS" >> $GITHUB_STEP_SUMMARY
             echo "- 🏃 Benchmarks Completed: $SUCCESSFUL_BENCHMARKS/$TOTAL_MODELS" >> $GITHUB_STEP_SUMMARY
+            echo "- 🔍 Sanity Checks Completed: $SUCCESSFUL_SANITY/$TOTAL_MODELS" >> $GITHUB_STEP_SUMMARY
             if [ "$FAILED_ISVC" -gt 0 ]; then
               echo "- ❌ InferenceService Failures: $FAILED_ISVC" >> $GITHUB_STEP_SUMMARY
             fi
             if [ "$FAILED_BENCHMARKS" -gt 0 ]; then
               echo "- ❌ Benchmark Failures: $FAILED_BENCHMARKS" >> $GITHUB_STEP_SUMMARY
+            fi
+            if [ "$FAILED_SANITY" -gt 0 ]; then
+              echo "- ❌ Sanity Check Failures: $FAILED_SANITY" >> $GITHUB_STEP_SUMMARY
             fi
             echo "" >> $GITHUB_STEP_SUMMARY
 
@@ -489,6 +584,7 @@ jobs:
               RUNTIME_NAME=$(echo "$status_info" | jq -r '.runtime_name')
               ISVC_STATUS=$(echo "$status_info" | jq -r '.isvc_status')
               BENCHMARK_STATUS=$(echo "$status_info" | jq -r '.benchmark_status')
+              SANITY_STATUS=$(echo "$status_info" | jq -r '.sanity_status')
 
               # Status emojis
               case "$ISVC_STATUS" in
@@ -504,11 +600,19 @@ jobs:
                 *) BENCHMARK_EMOJI="❓" ;;
               esac
 
+              case "$SANITY_STATUS" in
+                "SUCCESS") SANITY_EMOJI="✅" ;;
+                "FAILED") SANITY_EMOJI="❌" ;;
+                "SKIPPED") SANITY_EMOJI="⏭️" ;;
+                *) SANITY_EMOJI="❓" ;;
+              esac
+
               echo "#### 🤖 $MODEL" >> $GITHUB_STEP_SUMMARY
               echo "- **Namespace:** \`$NAMESPACE\`" >> $GITHUB_STEP_SUMMARY
               echo "- **InferenceService:** \`$MODEL_NAME\` $ISVC_EMOJI \`$ISVC_STATUS\`" >> $GITHUB_STEP_SUMMARY
               echo "- **Runtime:** \`$RUNTIME_NAME\`" >> $GITHUB_STEP_SUMMARY
               echo "- **Benchmark:** $BENCHMARK_EMOJI \`$BENCHMARK_STATUS\`" >> $GITHUB_STEP_SUMMARY
+              echo "- **Sanity Check:** $SANITY_EMOJI \`$SANITY_STATUS\`" >> $GITHUB_STEP_SUMMARY
 
               if [ "$BENCHMARK_STATUS" = "SUCCESS" ]; then
                 echo "- **Results:** \`oci://n/${REGISTRY_NAMESPACE}/b/${BUCKET_NAME}/o/${CONTAINER_NAME}/${{ steps.version_info.outputs.full_tag }}/$MODEL_NAME\`" >> $GITHUB_STEP_SUMMARY
