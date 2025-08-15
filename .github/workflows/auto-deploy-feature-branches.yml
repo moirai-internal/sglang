@@ -185,7 +185,8 @@ jobs:
           DEPLOYMENT_STATUS="[]"
 
           # Deploy each model sequentially using pre-computed names
-          echo "$MODELS_METADATA" | jq -c '.[]' | while read -r model_info; do
+          # Use process substitution to avoid subshell and preserve variables
+          while read -r model_info; do
             # Extract all names from JSON
             MODEL=$(echo "$model_info" | jq -r '.original')
             MODEL_NAME=$(echo "$model_info" | jq -r '.model_name')
@@ -394,7 +395,7 @@ jobs:
             rm -f benchmark-$MODEL_NAME.yaml
 
             echo "---"
-          done
+          done < <(echo "$MODELS_METADATA" | jq -c '.[]')
 
           # Output the deployment status for use in summary
           echo "deployment_status=$(echo "$DEPLOYMENT_STATUS" | tr -d '\n')" >> $GITHUB_OUTPUT
