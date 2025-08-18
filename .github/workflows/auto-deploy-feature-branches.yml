@@ -410,7 +410,7 @@ jobs:
                 # Check if Job exists and get its status
                 if kubectl get job sanity-check-$MODEL_NAME -n $NAMESPACE >/dev/null 2>&1; then
                   # Get the job completion status
-                  SANITY_CHECK_STATUS=$(kubectl get job sanity-check-$MODEL_NAME -n $NAMESPACE -o jsonpath='{.status.conditions[0].type}' 2>/dev/null || echo "")
+                  SANITY_CHECK_STATUS=$(kubectl get job sanity-check-$MODEL_NAME -n $NAMESPACE -o jsonpath='{.status.conditions[0].type}' 2>/dev/null || echo "Running")
 
                   if [ "$SANITY_CHECK_STATUS" = "Complete" ]; then
                     SANITY_SUCCESS=true
