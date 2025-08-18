@@ -30,7 +30,7 @@ env:
 jobs:
   build:
     if: startsWith(github.ref_name, 'features-based-on-v') || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     permissions:
       contents: read
       packages: write
