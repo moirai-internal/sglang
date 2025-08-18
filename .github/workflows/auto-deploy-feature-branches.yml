@@ -28,10 +28,9 @@ env:
   SANITY_CHECK_CONTAINER: phx.ocir.io/idqj093njucb/sanity-check:dev
 
 jobs:
-  build-and-deploy:
-
+  build:
     if: startsWith(github.ref_name, 'features-based-on-v') || github.event_name == 'workflow_dispatch'
-    runs-on: gh-arc-runner
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
@@ -97,6 +96,15 @@ jobs:
       #     cache-to: type=gha,mode=max
       #     platforms: linux/amd64
 
+  deploy:
+    if: startsWith(github.ref_name, 'features-based-on-v') || github.event_name == 'workflow_dispatch'
+    runs-on: gh-arc-runner
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
       - name: Set up kubectl
         uses: azure/setup-kubectl@v3
         with:
