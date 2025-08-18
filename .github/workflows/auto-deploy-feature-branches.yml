@@ -35,6 +35,12 @@ jobs:
       contents: read
       packages: write
       id-token: write
+    outputs:
+      image_name: ${{ steps.version_info.outputs.image_name }}
+      full_tag: ${{ steps.version_info.outputs.full_tag }}
+      branch_name: ${{ steps.version_info.outputs.branch_name }}
+      version: ${{ steps.version_info.outputs.version }}
+      commit_hash: ${{ steps.version_info.outputs.commit_hash }}
 
     steps:
       - name: Checkout repository
@@ -103,6 +109,13 @@ jobs:
       contents: read
       packages: write
       id-token: write
+    needs: [build]
+    env:
+      IMAGE_NAME: ${{ needs.build.outputs.image_name }}
+      FULL_TAG: ${{ needs.build.outputs.full_tag }}
+      BRANCH_NAME: ${{ needs.build.outputs.branch_name }}
+      VERSION: ${{ needs.build.outputs.version }}
+      COMMIT_HASH: ${{ needs.build.outputs.commit_hash }}
 
     steps:
       - name: Set up kubectl
@@ -186,9 +199,7 @@ jobs:
         id: deployment
         run: |
           MODELS_METADATA='${{ steps.models.outputs.models_metadata }}'
-          IMAGE="${{ steps.version_info.outputs.image_name }}:${{ steps.version_info.outputs.full_tag }}"
-          BRANCH_NAME="${{ steps.version_info.outputs.branch_name }}"
-          VERSION="${{ steps.version_info.outputs.version }}"
+          IMAGE="${IMAGE_NAME}:${FULL_TAG}"
 
           # Initialize status tracking
           DEPLOYMENT_STATUS="[]"
@@ -257,7 +268,7 @@ jobs:
             maxTimePerIteration: 15
             maxRequestsPerIteration: 1000
             outputLocation:
-              storageUri: "oci://n/${REGISTRY_NAMESPACE}/b/${BUCKET_NAME}/o/${CONTAINER_NAME}/${{ steps.version_info.outputs.full_tag }}/$MODEL_NAME"
+              storageUri: "oci://n/${REGISTRY_NAMESPACE}/b/${BUCKET_NAME}/o/${CONTAINER_NAME}/${FULL_TAG}/${MODEL_NAME}"
               parameters:
                 auth: "instance_principal"
                 region: "eu-frankfurt-1"
@@ -362,7 +373,7 @@ jobs:
 
               if [ "$BENCHMARK_SUCCESS" = "true" ]; then
                 echo "✅ Successfully completed benchmark for model: $MODEL"
-                echo "   Benchmark results should be available at: oci://n/${REGISTRY_NAMESPACE}/b/${BUCKET_NAME}/o/${CONTAINER_NAME}/${{ steps.version_info.outputs.full_tag }}/$MODEL_NAME"
+                echo "   Benchmark results should be available at: oci://n/${REGISTRY_NAMESPACE}/b/${BUCKET_NAME}/o/${CONTAINER_NAME}/${FULL_TAG}/${MODEL_NAME}"
                 BENCHMARK_STATUS="SUCCESS"
               else
                 echo "❌ Failed to complete benchmark or timeout for model: $MODEL"
@@ -530,15 +541,14 @@ jobs:
 
       - name: Create deployment summary
         run: |
-          VERSION="${{ steps.version_info.outputs.version }}"
           DEPLOYMENT_STATUS='${{ steps.deployment.outputs.deployment_status }}'
 
           echo "## 🚀 SGLang Deployment & Benchmark Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Branch:** \`${{ steps.version_info.outputs.branch_name }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Version:** \`${{ steps.version_info.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Commit:** \`${{ steps.version_info.outputs.commit_hash }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Docker Image:** \`${{ steps.version_info.outputs.image_name }}:${{ steps.version_info.outputs.full_tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** \`${BRANCH_NAME}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`${VERSION}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`${COMMIT_HASH}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Docker Image:** \`${IMAGE_NAME}:${FULL_TAG}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
           echo "### 📋 Deployment Overview" >> $GITHUB_STEP_SUMMARY
@@ -617,7 +627,7 @@ jobs:
               echo "- **Sanity Check:** $SANITY_EMOJI \`$SANITY_STATUS\`" >> $GITHUB_STEP_SUMMARY
 
               if [ "$BENCHMARK_STATUS" = "SUCCESS" ]; then
-                echo "- **Results:** \`oci://n/${REGISTRY_NAMESPACE}/b/${BUCKET_NAME}/o/${CONTAINER_NAME}/${{ steps.version_info.outputs.full_tag }}/$MODEL_NAME\`" >> $GITHUB_STEP_SUMMARY
+                echo "- **Results:** \`oci://n/${REGISTRY_NAMESPACE}/b/${BUCKET_NAME}/o/${CONTAINER_NAME}/${FULL_TAG}/${MODEL_NAME}\`" >> $GITHUB_STEP_SUMMARY
               fi
               echo "" >> $GITHUB_STEP_SUMMARY
             done
@@ -637,6 +647,6 @@ jobs:
           echo "### 📈 Results Location" >> $GITHUB_STEP_SUMMARY
           echo "All benchmark results are stored in OCI Object Storage:" >> $GITHUB_STEP_SUMMARY
           echo "- **Bucket:** \`${BUCKET_NAME}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Path Pattern:** \`${CONTAINER_NAME}/${{ steps.version_info.outputs.full_tag }}/{model_name}/\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Path Pattern:** \`${CONTAINER_NAME}/${FULL_TAG}/${MODEL_NAME}/\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "_Note: All resources (InferenceServices and BenchmarkJobs) were cleaned up after completion._" >> $GITHUB_STEP_SUMMARY
