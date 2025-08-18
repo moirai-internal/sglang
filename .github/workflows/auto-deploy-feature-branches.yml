@@ -31,7 +31,7 @@ jobs:
   build-and-deploy:
 
     if: startsWith(github.ref_name, 'features-based-on-v') || github.event_name == 'workflow_dispatch'
-    runs-on: self-hosted
+    runs-on: gh-arc-runner
     permissions:
       contents: read
       packages: write
