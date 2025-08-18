@@ -383,7 +383,7 @@ jobs:
               # Wait for sanity-check job to complete (with timeout)
               echo "Waiting for Job sanity-check-$MODEL_NAME to complete in namespace $NAMESPACE..."
 
-              SANITY_TIMEOUT=3600  # 60 minutes
+              SANITY_TIMEOUT=7200  # 120 minutes
               SANITY_ELAPSED=0
               SANITY_SUCCESS=false
 
