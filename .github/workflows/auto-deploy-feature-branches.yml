@@ -362,7 +362,7 @@ jobs:
                     echo "❌ Benchmark job failed for model: $MODEL"
                     break
                   fi
-                  echo "BenchmarkJob status: $BENCHMARK_STATUS (waiting...)"
+                  # echo "BenchmarkJob status: $BENCHMARK_STATUS (waiting...)"
                 else
                   echo "BenchmarkJob not found yet (waiting...)"
                 fi
@@ -415,11 +415,11 @@ jobs:
                   if [ "$SANITY_CHECK_STATUS" = "Complete" ]; then
                     SANITY_SUCCESS=true
                     break
-                  elif ["$SANITY_CHECK_STATUS" = "Failed" ]; then
+                  elif [ "$SANITY_CHECK_STATUS" = "Failed" ]; then
                     echo "❌ Sanity-check job failed for model: $MODEL"
                     break
                   fi
-                  echo "Sanity-check job still running (waiting...)"
+                  # echo "Sanity-check job still running (waiting...)"
                 else
                   echo "Sanity-check job not found yet (waiting...)"
                 fi
