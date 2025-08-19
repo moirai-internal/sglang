@@ -313,10 +313,10 @@ jobs:
               #   apiFormat: openai
               #   modelName: $MODEL_NAME
             task: text-to-text
-            numConcurrency:
-              - 1
-              - 128
-            maxTimePerIteration: 15
+            # numConcurrency:
+            #   - 1
+            #   - 128
+            maxTimePerIteration: 10
             maxRequestsPerIteration: 1000
             outputLocation:
               storageUri: "oci://n/${REGISTRY_NAMESPACE}/b/${BUCKET_NAME}/o/${CONTAINER_NAME}/${FULL_TAG}/${MODEL_NAME}"
