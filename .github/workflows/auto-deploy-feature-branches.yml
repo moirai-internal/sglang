@@ -1,7 +1,7 @@
 name: Build and Deploy Feature Branches
 
 on:
-  pull_request:
+  push:
     branches:
       - "features-based-on-v*"
   workflow_dispatch:
@@ -21,16 +21,19 @@ env:
   REGISTRY_NAMESPACE: idqj093njucb
   K8S_NAMESPACE: github-actions
   CONTAINER_NAME: official-sgl
+  # TODO: Use CUDA version to evaluate suffix
   CUDA_SUFFIX: cu126
+  # TODO: Add all supported models
   ISVC_MODELS: llama-3-3-70b-instruct,llama-4-scout-17b-16e-instruct
   BUCKET_NAME: ome-benchmark-results
   BENCHMARK_CONTAINER: ghcr.io/moirai-internal/genai-bench:v0.0.2
+  # TODO: Switch to official sanity check image
   SANITY_CHECK_CONTAINER: phx.ocir.io/idqj093njucb/sanity-check:dev
 
 jobs:
   build:
     if: startsWith(github.ref_name, 'features-based-on-v') || github.event_name == 'workflow_dispatch'
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
