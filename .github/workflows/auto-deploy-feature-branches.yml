@@ -200,6 +200,7 @@ jobs:
 
       - name: Deploy to Kubernetes
         id: deployment
+        # Change benchmark endpoint to use inference service
         run: |
           MODELS_METADATA='${{ steps.models.outputs.models_metadata }}'
           IMAGE="${IMAGE_NAME}:${FULL_TAG}"
@@ -256,6 +257,8 @@ jobs:
           spec:
             podOverride:
               image: ${BENCHMARK_CONTAINER}
+            huggingFaceSecretReference:
+              name: huggingface-secret
             endpoint:
               # inferenceService:
               #   name: $MODEL_NAME
