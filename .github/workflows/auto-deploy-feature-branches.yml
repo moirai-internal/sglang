@@ -46,10 +46,24 @@ jobs:
       commit_hash: ${{ steps.version_info.outputs.commit_hash }}
 
     steps:
+      - name: Delete huge unnecessary tools folder
+        run: rm -rf /opt/hostedtoolcache
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.branch_name || github.ref_name }}
+
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          docker-images: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          swap-storage: false
 
       - name: Extract version and commit info
         id: version_info
@@ -260,13 +274,13 @@ jobs:
             huggingFaceSecretReference:
               name: huggingface-secret
             endpoint:
-              # inferenceService:
-              #   name: $MODEL_NAME
-              #   namespace: $NAMESPACE
-              endpoint:
-                url: http://$MODEL_NAME-engine.$NAMESPACE.svc.cluster.local:8080
-                apiFormat: openai
-                modelName: $MODEL_NAME
+              inferenceService:
+                name: $MODEL_NAME
+                namespace: $NAMESPACE
+              # endpoint:
+              #   url: http://$MODEL_NAME-engine.$NAMESPACE.svc.cluster.local:8080
+              #   apiFormat: openai
+              #   modelName: $MODEL_NAME
             task: text-to-text
             numConcurrency:
               - 1
