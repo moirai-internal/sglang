@@ -177,10 +177,10 @@ jobs:
       #     echo "${{ secrets.KUBECONFIG_BASE64 }}" | base64 -d > $HOME/.kube/config
       #     chmod 600 $HOME/.kube/config
 
-      - name: Verify kubectl connection
-        run: |
-          kubectl cluster-info --namespace ${K8S_NAMESPACE} || sleep 99999
-          kubectl get nodes
+      # - name: Verify kubectl connection
+      #   run: |
+      #     kubectl cluster-info --namespace ${K8S_NAMESPACE} || sleep 99999
+      #     kubectl get nodes
 
       - name: Prepare model list and sanitize names
         id: models
