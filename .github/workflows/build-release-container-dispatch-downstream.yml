@@ -3,7 +3,7 @@ name: Build Release Container and Dispatch to Downstream
 on:
   push:
     branches:
-      - "features-based-on-v*"
+      - 'features-based-on-v*'
   workflow_dispatch:
     inputs:
       branch_name:
