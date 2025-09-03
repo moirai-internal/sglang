@@ -60,8 +60,11 @@ RUN ln -sf /usr/lib/x86_64-linux-gnu/libmlx5.so.1 /usr/lib/x86_64-linux-gnu/libm
 
 # Clone and install SGLang
 WORKDIR /sgl-workspace
+
+# Copy the repository contents from parent directory
+COPY . /sgl-workspace/sglang/
+
 RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel html5lib six \
- && git clone --depth=1 https://github.com/sgl-project/sglang.git \
  && cd sglang \
  && case "$CUDA_VERSION" in \
       12.6.1) CUINDEX=126 ;; \
