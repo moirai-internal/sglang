@@ -19,6 +19,12 @@ jobs:
       tag: ${{ steps.check.outputs.tag }}
       branch_name: ${{ steps.check.outputs.branch_name }}
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.ORG_ADMIN_TOKEN || secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
       - name: Check if tag should be processed
         id: check
         run: |
@@ -27,12 +33,12 @@ jobs:
           else
             TAG="${GITHUB_REF#refs/tags/}"
           fi
-          
+
           # Check if this is a pre-release tag
           if [[ "$TAG" =~ [\.-]?(rc|alpha|beta|pre|dev)[0-9]*$ ]]; then
             # Extract base version (e.g., v0.10.0 from v0.10.0rc1)
             BASE_VERSION=$(echo "$TAG" | sed -E 's/[\.-]?(rc|alpha|beta|pre|dev)[0-9]*$//')
-            
+
             # Check if corresponding full release exists
             if git ls-remote --tags origin | grep -q "refs/tags/$BASE_VERSION$"; then
               echo "::notice::Skipping pre-release tag $TAG because full release $BASE_VERSION exists"
@@ -100,7 +106,7 @@ jobs:
               if [[ "$tag" =~ [\.-]?(rc|alpha|beta|pre|dev)[0-9]*$ ]]; then
                 # Extract base version (e.g., v0.10.0 from v0.10.0rc1)
                 BASE_VERSION=$(echo "$tag" | sed -E 's/[\.-]?(rc|alpha|beta|pre|dev)[0-9]*$//')
-                
+
                 # Check if corresponding full release exists
                 if git ls-remote --tags origin | grep -q "refs/tags/$BASE_VERSION$"; then
                   echo "Skipping pre-release tag $tag because full release $BASE_VERSION exists"
@@ -109,7 +115,7 @@ jobs:
                   echo "Considering pre-release tag $tag (no full release $BASE_VERSION found)"
                 fi
               fi
-              
+
               # This is a previous tag, check if it has a feature branch
               CANDIDATE_BRANCH="features-based-on-$tag"
               echo "Checking if branch exists for tag $tag: $CANDIDATE_BRANCH"
