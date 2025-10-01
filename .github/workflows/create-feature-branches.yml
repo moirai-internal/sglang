@@ -12,7 +12,49 @@ on:
         type: string
 
 jobs:
+  check-tag:
+    runs-on: ubuntu-latest
+    outputs:
+      is_prerelease: ${{ steps.check.outputs.is_prerelease }}
+      tag: ${{ steps.check.outputs.tag }}
+      branch_name: ${{ steps.check.outputs.branch_name }}
+    steps:
+      - name: Check if tag should be processed
+        id: check
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+
+          # Check if this is a pre-release tag
+          if [[ "$TAG" =~ [\.-]?(rc|alpha|beta|pre|dev)[0-9]*$ ]]; then
+            # Extract base version (e.g., v0.10.0 from v0.10.0rc1)
+            BASE_VERSION=$(echo "$TAG" | sed -E 's/[\.-]?(rc|alpha|beta|pre|dev)[0-9]*$//')
+
+            # Check if corresponding full release exists
+            if git ls-remote --tags origin | grep -q "refs/tags/$BASE_VERSION$"; then
+              echo "::notice::Skipping pre-release tag $TAG because full release $BASE_VERSION exists"
+              echo "is_prerelease=true" >> $GITHUB_OUTPUT
+              echo "tag=$TAG" >> $GITHUB_OUTPUT
+              echo "branch_name=" >> $GITHUB_OUTPUT
+            else
+              echo "::notice::Processing pre-release tag $TAG (no full release $BASE_VERSION found)"
+              echo "is_prerelease=false" >> $GITHUB_OUTPUT
+              echo "tag=$TAG" >> $GITHUB_OUTPUT
+              echo "branch_name=features-based-on-$TAG" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "::notice::Processing stable release tag: $TAG"
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+            echo "tag=$TAG" >> $GITHUB_OUTPUT
+            echo "branch_name=features-based-on-$TAG" >> $GITHUB_OUTPUT
+          fi
+
   create-feature-branch:
+    needs: check-tag
+    if: needs.check-tag.outputs.is_prerelease == 'false'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -30,16 +72,11 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Get tag name
+      - name: Set tag variables
         id: get_tag
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            TAG="${{ github.event.inputs.tag }}"
-          else
-            TAG="${GITHUB_REF#refs/tags/}"
-          fi
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "branch_name=features-based-on-$TAG" >> $GITHUB_OUTPUT
+          echo "tag=${{ needs.check-tag.outputs.tag }}" >> $GITHUB_OUTPUT
+          echo "branch_name=${{ needs.check-tag.outputs.branch_name }}" >> $GITHUB_OUTPUT
 
       - name: Find previous tag with existing branch
         id: previous_tag
@@ -59,6 +96,20 @@ jobs:
 
           for tag in $ALL_TAGS; do
             if [[ "$FOUND_CURRENT" == "true" ]]; then
+              # Check if this is a pre-release tag
+              if [[ "$tag" =~ [\.-]?(rc|alpha|beta|pre|dev)[0-9]*$ ]]; then
+                # Extract base version (e.g., v0.10.0 from v0.10.0rc1)
+                BASE_VERSION=$(echo "$tag" | sed -E 's/[\.-]?(rc|alpha|beta|pre|dev)[0-9]*$//')
+
+                # Check if corresponding full release exists
+                if git ls-remote --tags origin | grep -q "refs/tags/$BASE_VERSION$"; then
+                  echo "Skipping pre-release tag $tag because full release $BASE_VERSION exists"
+                  continue
+                else
+                  echo "Considering pre-release tag $tag (no full release $BASE_VERSION found)"
+                fi
+              fi
+
               # This is a previous tag, check if it has a feature branch
               CANDIDATE_BRANCH="features-based-on-$tag"
               echo "Checking if branch exists for tag $tag: $CANDIDATE_BRANCH"
