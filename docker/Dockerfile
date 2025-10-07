@@ -2,6 +2,11 @@ ARG CUDA_VERSION=12.9.1
 FROM nvidia/cuda:${CUDA_VERSION}-cudnn-devel-ubuntu22.04 as base
 
 ARG BUILD_TYPE=all
+# Control whether to install vLLM via pip during the image build.
+# Set to "true" to install; defaults to "false".
+ARG INSTALL_VLLM=false
+# Optional: pin a specific vLLM version, e.g., "0.6.4". Leave empty for latest.
+ARG VLLM_VERSION=""
 ARG BRANCH_TYPE=remote
 ARG DEEPEP_COMMIT=b92d0d4860ce6866cd6d31bfbae937f9a7a3772b
 ARG CMAKE_BUILD_PARALLEL_LEVEL=2
@@ -66,6 +71,8 @@ FROM base AS build-image
 # Install SGLang
 WORKDIR /sgl-workspace
 ARG BRANCH_TYPE
+ARG INSTALL_VLLM
+ARG VLLM_VERSION
 COPY --from=local_src /src /tmp/local_src
 RUN if [ "$BRANCH_TYPE" = "local" ]; then \
         cp -r /tmp/local_src /sgl-workspace/sglang; \
@@ -86,6 +93,13 @@ RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel html5li
  && python3 -m flashinfer --download-cubin \
  && if [ "$CUDA_VERSION" = "12.6.1" ]; then \
       python3 -m pip install --no-cache-dir https://github.com/sgl-project/whl/releases/download/v0.3.9.post2/sgl_kernel-0.3.9.post2+cu124-cp310-abi3-manylinux2014_x86_64.whl --force-reinstall --no-deps ; \
+    fi \
+ && if [ "${INSTALL_VLLM}" = "true" ]; then \
+      if [ -n "${VLLM_VERSION}" ]; then \
+        python3 -m pip install --no-cache-dir vllm==${VLLM_VERSION}; \
+      else \
+        python3 -m pip install --no-cache-dir vllm; \
+      fi; \
     fi
 
 # Download source files
