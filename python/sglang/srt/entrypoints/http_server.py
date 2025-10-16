@@ -67,10 +67,14 @@ from sglang.srt.entrypoints.openai.serving_completions import OpenAIServingCompl
 from sglang.srt.entrypoints.openai.serving_embedding import OpenAIServingEmbedding
 from sglang.srt.entrypoints.openai.serving_rerank import OpenAIServingRerank
 from sglang.srt.entrypoints.openai.serving_score import OpenAIServingScore
+<<<<<<< HEAD
 from sglang.srt.entrypoints.openai.serving_tokenize import (
     OpenAIServingDetokenize,
     OpenAIServingTokenize,
 )
+=======
+from sglang.srt.entrypoints.server_middlewares import OpcRequestIdMiddleware
+>>>>>>> origin/features-based-on-v0.5.3
 from sglang.srt.function_call.function_call_parser import FunctionCallParser
 from sglang.srt.managers.io_struct import (
     AbortReq,
@@ -307,6 +311,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(OpcRequestIdMiddleware)
 
 
 @app.exception_handler(HTTPException)
