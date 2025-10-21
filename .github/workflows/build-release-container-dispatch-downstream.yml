@@ -36,7 +36,7 @@ jobs:
       commit_hash: ${{ steps.version_info.outputs.commit_hash }}
     strategy:
       matrix:
-        cuda_version: ['12.6.1']
+        cuda_version: ['12.9.1']
         build_type: ['all']
         branch_type: ['local']
 
@@ -87,6 +87,8 @@ jobs:
             CUDA_SUFFIX="cu126"
           elif [ "${{ matrix.cuda_version }}" = "12.8.1" ]; then
             CUDA_SUFFIX="cu128"
+          elif [ "${{ matrix.cuda_version }}" = "12.9.1" ]; then
+            CUDA_SUFFIX="cu129"
           else
             echo "Unsupported CUDA version"
             exit 1
