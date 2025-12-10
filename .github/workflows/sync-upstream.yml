@@ -86,7 +86,7 @@ jobs:
             --body "Automated sync from upstream repository with conflicts resolved. Please review before merging." \
             --head "$BRANCH_NAME" \
             --base "main" \
-            --reviewer "CatherineSue,shenoyvvarun,slin1237,YouNeedCryDear,upfixer,key4ng" || true
+            --reviewer "CatherineSue,slin1237" || true
         env:
           GITHUB_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN || secrets.GITHUB_TOKEN }}
 
