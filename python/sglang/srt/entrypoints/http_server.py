@@ -72,11 +72,8 @@ from sglang.srt.entrypoints.openai.serving_tokenize import (
     OpenAIServingDetokenize,
     OpenAIServingTokenize,
 )
-<<<<<<< HEAD
 from sglang.srt.environ import envs
-=======
 from sglang.srt.entrypoints.server_middlewares import OpcRequestIdMiddleware
->>>>>>> origin/features-based-on-v0.5.5
 from sglang.srt.function_call.function_call_parser import FunctionCallParser
 from sglang.srt.managers.io_struct import (
     AbortReq,
