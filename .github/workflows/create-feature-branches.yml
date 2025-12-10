@@ -254,7 +254,7 @@ jobs:
             --body "$PR_BODY" \
             --base "$BRANCH_NAME" \
             --head "$PR_BRANCH" \
-            --reviewer "CatherineSue,shenoyvvarun,slin1237,YouNeedCryDear,upfixer,key4ng" || true
+            --reviewer "CatherineSue,slin1237" || true
         env:
           GH_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN || secrets.GITHUB_TOKEN }}
 
@@ -342,7 +342,7 @@ jobs:
             --body "$PR_BODY" \
             --base "$BRANCH_NAME" \
             --head "$CONFLICT_BRANCH" \
-            --reviewer "CatherineSue,shenoyvvarun,slin1237,upfixer,key4ng" || true
+            --reviewer "CatherineSue,slin1237" || true
         env:
           GH_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN || secrets.GITHUB_TOKEN }}
 
