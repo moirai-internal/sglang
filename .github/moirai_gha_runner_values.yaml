@@ -15,7 +15,7 @@
 #     -f .github/workflows/moirai_gha_runner_values.yaml \
 #     oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set
 
-# 4. Trigger the workflow by 
+# 4. Trigger the workflow by
 # gh workflow run "Build Release Container and Dispatch to Downstream" --ref your-feature-branch -f branch_name=features-based-on-v0.5.8
 
 #  GHA runner value file
