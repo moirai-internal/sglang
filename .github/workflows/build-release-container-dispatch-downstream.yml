@@ -22,8 +22,8 @@ jobs:
     if: |
       (github.event_name == 'push' && startsWith(github.ref_name, 'features-based-on-v')) ||
       (github.event_name == 'workflow_dispatch' && startsWith(github.event.inputs.branch_name, 'features-based-on-v'))
-    runs-on: ubuntu-24.04-4core-16gb
-    # runs-on: self-hosted
+    # runs-on: ubuntu-24.04-4core-16gb
+    runs-on: moirai-gh-runner
     permissions:
       contents: read
       packages: write
