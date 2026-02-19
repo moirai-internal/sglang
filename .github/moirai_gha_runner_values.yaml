@@ -1,0 +1,91 @@
+# 1. Install the GHA controller
+# NAMESPACE="github-actions"
+# helm upgrade --install arc \
+#     --namespace "${NAMESPACE}" \
+#     oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller
+
+# 2. Create the secret
+# kubectl create secret generic gh-runner \
+#    --namespace "${NAMESPACE}" \
+#    --from-literal=github_token='YOUR_GITHUB_TOKEN'
+
+# 3. Install the GHA runner
+# helm upgrade --install moirai-gh-runner \
+#     --namespace "${NAMESPACE}" \
+#     -f .github/workflows/moirai_gha_runner_values.yaml \
+#     oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set
+
+# 4. Trigger the workflow by
+# gh workflow run "Build Release Container and Dispatch to Downstream" --ref your-feature-branch -f branch_name=features-based-on-v0.5.8
+
+#  GHA runner value file
+githubConfigUrl: "https://github.com/moirai-internal/sglang"
+githubConfigSecret: "gh-runner"
+
+# Keep this aligned with INSTALLATION_NAME in the helm command.
+runnerScaleSetName: "moirai-gh-runner"
+
+template:
+  spec:
+    initContainers:
+      - name: init-dind-externals
+        image: ghcr.io/actions/actions-runner:latest
+        command: ["cp", "-r", "/home/runner/externals/.", "/home/runner/tmpDir/"]
+        volumeMounts:
+          - name: dind-externals
+            mountPath: /home/runner/tmpDir
+    containers:
+      - name: runner
+        image: ghcr.io/actions/actions-runner:latest
+        command: ["/home/runner/run.sh"]
+        env:
+          - name: DOCKER_HOST
+            value: unix:///var/run/docker.sock
+          - name: RUNNER_WAIT_FOR_DOCKER_IN_SECONDS
+            value: "120"
+        volumeMounts:
+          - name: work
+            mountPath: /home/runner/_work
+          - name: dind-sock
+            mountPath: /var/run
+      - name: dind
+        image: docker:dind
+        args:
+          - dockerd
+          - --host=unix:///var/run/docker.sock
+          - --group=$(DOCKER_GROUP_GID)
+          - --storage-driver=vfs
+        env:
+          - name: DOCKER_GROUP_GID
+            value: "123"
+        securityContext:
+          privileged: true
+        volumeMounts:
+          - name: work
+            mountPath: /home/runner/_work
+          - name: dind-sock
+            mountPath: /var/run
+          - name: dind-externals
+            mountPath: /home/runner/externals
+          - name: docker-storage
+            mountPath: /var/lib/docker
+    volumes:
+      - name: work
+        emptyDir: {}
+      - name: dind-sock
+        emptyDir: {}
+      - name: dind-externals
+        emptyDir: {}
+      - name: docker-storage
+        emptyDir: {}
+    nodeSelector:
+      beta.kubernetes.io/instance-type: "BM.GPU.H100.8"
+      nvidia.com/gpu: "true"
+    tolerations:
+      - key: "nvidia.com/gpu"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+      - key: "nvidia.com/gpu"
+        operator: "Exists"
+        effect: "NoSchedule"
