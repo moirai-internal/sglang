@@ -32,7 +32,7 @@ from sglang.test.test_utils import (
     CustomTestCase,
 )
 
-register_cuda_ci(est_time=182, stage="extra-a", runner_config="2-gpu-large")
+register_cuda_ci(est_time=156, stage="extra-a", runner_config="2-gpu-large")
 
 LOGPROB_THRESHOLD = 5e-04
 # Chunked vs non-chunked runs differ only in lm_head matmul shape (16-row
